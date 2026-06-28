@@ -1113,7 +1113,7 @@ img,video{max-width:100%;height:auto}
 <div id="loginPage" class="login-page">
   <div class="login-card fade-in">
     <div class="text-center mb-8">
-      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center font-bold text-xl mx-auto mb-4">KSD</div>
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center font-bold text-xl mx-auto mb-4">VBS</div>
       <h1 class="text-2xl font-bold text-white">KSK Smart Drive</h1>
       <p class="text-sidebar-text text-sm mt-1">ระบบบริหารจัดการยานพาหนะโรงพยาบาลเขาสุกิม</p>
     </div>
@@ -1162,12 +1162,18 @@ img,video{max-width:100%;height:auto}
 
 <!-- ═══════════════════════ MAIN APP ═══════════════════════ -->
 <div id="mainApp" class="h-full flex overflow-auto hidden">
+<div id="dataLoadingOverlay" class="hidden fixed inset-0 z-[9999] flex items-center justify-center" style="background:rgba(10,12,20,0.85);backdrop-filter:blur(4px)">
+  <div class="flex flex-col items-center gap-4">
+    <div class="w-12 h-12 border-4 border-brand-primary/30 border-t-brand-primary rounded-full animate-spin"></div>
+    <p class="text-sm text-sidebar-text">กำลังโหลดข้อมูลจาก Google Sheet...</p>
+  </div>
+</div>
   <div id="sidebarOverlay" class="overlay-bg fixed inset-0 z-30 hidden" onclick="toggleSidebar()"></div>
 
   <aside id="sidebar" class="sidebar-transition fixed lg:relative z-40 w-64 h-full bg-sidebar-bg border-r border-sidebar-border flex flex-col -translate-x-full lg:translate-x-0">
     <div class="p-4 border-b border-sidebar-border">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center font-bold text-sm">KSD</div>
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-primary to-brand-accent flex items-center justify-center font-bold text-sm">VBS</div>
         <div><h1 class="text-sm font-bold text-white">KSK Car</h1><p class="text-[10px] text-sidebar-text">ระบบบริหารจัดการยานพาหนะ</p></div>
       </div>
     </div>
@@ -1302,41 +1308,41 @@ function doLogin(){
     const un=document.getElementById('loginUsername').value.trim();
     const pw=document.getElementById('loginPassword').value;
     if(!un||!pw){errEl.textContent='กรุณากรอกชื่อผู้ใช้งานและรหัสผ่าน';errEl.classList.remove('hidden');return;}
-    // ── ยิง server-side auth ──
     errEl.classList.add('hidden');
     if(loginBtn){loginBtn.disabled=true;document.getElementById('loginBtnText').textContent='กำลังตรวจสอบ...';}
-    if(typeof google!=='undefined'&&google.script){
-      google.script.run
-        .withSuccessHandler(function(res){
-          if(loginBtn){loginBtn.disabled=false;document.getElementById('loginBtnText').textContent='เข้าสู่ระบบ (Admin)';}
-          if(res.success){
-            adminProfile.firstName = res.fullName?res.fullName.split(' ')[0]:'ผู้ดูแล';
-            adminProfile.lastName  = res.fullName?res.fullName.split(' ').slice(1).join(' '):'ระบบ';
-            adminProfile.position  = res.role||'Admin';
-            adminProfile.department= res.department||'';
-            _finishLogin('admin');
-          } else {
-            errEl.textContent=res.message||'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
-            errEl.classList.remove('hidden');
-          }
-        })
-        .withFailureHandler(function(err){
-          if(loginBtn){loginBtn.disabled=false;document.getElementById('loginBtnText').textContent='เข้าสู่ระบบ (Admin)';}
-          // fallback offline mode
+
+    // ── ยิงไป Apps Script Web App (GET, อ่าน response ได้ ไม่มี CORS preflight) ──
+    const url = webAppUrl + '?action=login&username=' + encodeURIComponent(un) + '&password=' + encodeURIComponent(pw);
+    fetch(url, { method:'GET' })
+      .then(r=>r.json())
+      .then(res=>{
+        if(loginBtn){loginBtn.disabled=false;document.getElementById('loginBtnText').textContent='เข้าสู่ระบบ (Admin)';}
+        if(res.success){
+          const fullName = (res.user&&res.user.name) ? res.user.name : 'ผู้ดูแล ระบบ';
+          adminProfile.firstName = fullName.split(' ')[0]||'ผู้ดูแล';
+          adminProfile.lastName  = fullName.split(' ').slice(1).join(' ')||'ระบบ';
+          adminProfile.position  = (res.user&&res.user.role) || 'Admin';
+          adminProfile.department= (res.user&&res.user.dept) || '';
           _finishLogin('admin');
-        })
-        .checkAdminLogin(un, pw);
-    } else {
-      // offline / preview mode
-      _finishLogin('admin');
-    }
+        } else {
+          errEl.textContent=res.message||'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+          errEl.classList.remove('hidden');
+        }
+      })
+      .catch(err=>{
+        if(loginBtn){loginBtn.disabled=false;document.getElementById('loginBtnText').textContent='เข้าสู่ระบบ (Admin)';}
+        console.error('Login error:', err);
+        // fallback: ตรวจสอบไม่ได้ (เช่น เน็ตหลุด หรือยังไม่ deploy Code.gs) → แจ้งเตือน ไม่ปล่อยเข้าระบบ
+        errEl.textContent='ไม่สามารถเชื่อมต่อระบบยืนยันตัวตนได้ กรุณาเช็กอินเทอร์เน็ตแล้วลองใหม่';
+        errEl.classList.remove('hidden');
+      });
     return;
   }
   errEl.classList.add('hidden');
   _finishLogin('user');
 }
 
-function _finishLogin(role){
+async function _finishLogin(role){
   currentRole=role;
   const isAdmin=role==='admin';
   document.getElementById('sidebarUserName').textContent=isAdmin?(adminProfile.firstName+' '+adminProfile.lastName):'พนักงาน';
@@ -1346,6 +1352,8 @@ function _finishLogin(role){
   badge.className=isAdmin?'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-brand-primary/20 text-brand-primaryLight':'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-600/30 text-gray-300';
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
+  // ── โหลดข้อมูลจริงจาก Google Sheet ก่อนแสดงผล ──
+  await loadAllDataFromSheet();
   renderSidebar();
   navigateTo('home');
 }
@@ -1362,37 +1370,17 @@ function handleLogout(){
 // ═══════════ DATA ═══════════
 const DB={
   vehicles:[
-    {id:1,plate:'HA-1234',brand:'Toyota',model:'Hiace',type:'ตู้โดยสาร',color:'ขาว',year:2562,mileage:45230,fuel:'ดีเซล',seats:12,status:'พร้อม',isAmbulance:false,insurance:'พ.ร.บ.',insuranceExpiry:'2025-02-15',taxExpiry:'2025-03-01',
-     gpsEnabled:true,gpsDeviceId:'GPS-001',gpsProvider:'ThaiBev GPS',gpsSimNo:'0812345001',gpsInstallDate:'2023-01-10',gpsRemark:'ติดตั้งเรียบร้อย',gpsLat:'13.8621',gpsLng:'100.5144',gpsLocation:'บางซื่อ, กรุงเทพฯ',gpsSignal:'ดี'},
-    {id:2,plate:'AM-0001',brand:'Toyota',model:'HiAce Ambulance',type:'รถพยาบาล',color:'ขาว',year:2563,mileage:38000,fuel:'ดีเซล',seats:4,status:'พร้อม',isAmbulance:true,insurance:'ประกันชั้น 1',insuranceExpiry:'2025-06-15',taxExpiry:'2025-07-01',
-     gpsEnabled:true,gpsDeviceId:'GPS-002',gpsProvider:'ThaiBev GPS',gpsSimNo:'0812345002',gpsInstallDate:'2023-03-15',gpsRemark:'ติดตั้งพร้อมกล้อง',gpsLat:'12.6818',gpsLng:'101.2820',gpsLocation:'ถนนสุขุมวิท, ระยอง',gpsSignal:'ดี'},
-    {id:3,plate:'DM-9012',brand:'Isuzu',model:'D-Max',type:'กระบะ',color:'ดำ',year:2563,mileage:32100,fuel:'ดีเซล',seats:5,status:'พร้อม',isAmbulance:false,insurance:'ประกันชั้น 2',insuranceExpiry:'2025-08-20',taxExpiry:'2025-09-01',
-     gpsEnabled:false,gpsDeviceId:'',gpsProvider:'',gpsSimNo:'',gpsInstallDate:'',gpsRemark:''},
-    {id:4,plate:'BV-3456',brand:'Toyota',model:'Fortuner',type:'SUV',color:'เทาเข้ม',year:2564,mileage:28560,fuel:'ดีเซล',seats:7,status:'พร้อม',isAmbulance:false,insurance:'ประกันชั้น 1',insuranceExpiry:'2025-12-10',taxExpiry:'2025-12-15',
-     gpsEnabled:true,gpsDeviceId:'GPS-004',gpsProvider:'MDVR Thailand',gpsSimNo:'0812345004',gpsInstallDate:'2024-05-20',gpsRemark:'',gpsLat:'13.7308',gpsLng:'100.5215',gpsLocation:'สุขุมวิท 39, กรุงเทพฯ',gpsSignal:'ปานกลาง'},
-    {id:5,plate:'TR-2890',brand:'Mitsubishi',model:'Fuso',type:'รถบรรทุก',color:'ขาว',year:2560,mileage:98500,fuel:'ดีเซล',seats:3,status:'ซ่อม',isAmbulance:false,insurance:'พ.ร.บ.',insuranceExpiry:'2025-04-01',taxExpiry:'2025-05-01',
-     gpsEnabled:false,gpsDeviceId:'',gpsProvider:'',gpsSimNo:'',gpsInstallDate:'',gpsRemark:'รอติดตั้ง'},
   ],
   drivers:[
-    {id:1,name:'นายมานพ ขับดี',license:'1234567890',type:'ประเภท 2',expiry:'2027-12-31',phone:'091-234-5678',startDate:'2018-05-15',status:'บัญชีงาน'},
   ],
   usageRecords:[
-    {id:1,date:'2025-01-28',vehicle:'HA-1234',driver:'สมชาย ใจดี',timeStart:'08:00',timeEnd:'12:30',mileageStart:45000,mileageEnd:45045,destination:'กรุงเทพฯ',purpose:'ประชุมสัมมนา',passengers:4,notes:''},
-    {id:2,date:'2025-01-27',vehicle:'AM-0001',driver:'วิภา สุขสม',timeStart:'07:30',timeEnd:'16:00',mileageStart:37500,mileageEnd:37568,destination:'ระยอง',purpose:'ส่งผู้ป่วย',passengers:2,notes:''},
   ],
   fuelRecords:[
-    {id:1,date:'2025-01-28',vehicle:'HA-1234',driver:'สมชาย ใจดี',liters:45,pricePerLiter:35,total:1575,mileage:45230,efficiency:8.32},
-    {id:2,date:'2025-01-27',vehicle:'DM-9012',driver:'ชวลิต มั่นคง',liters:38,pricePerLiter:35,total:1330,mileage:32100,efficiency:7.98},
-    {id:3,date:'2025-01-26',vehicle:'AM-0001',driver:'วิภา สุขสม',liters:52,pricePerLiter:35,total:1820,mileage:38000,efficiency:8.15},
   ],
   maintenance:[
-    {id:1,date:'2025-01-28',vehicle:'HA-1234',type:'ประจำเดือน',details:'เปลี่ยนน้ำมันเครื่อง',cost:580,garage:'อู่มานพ',status:'เสร็จแล้ว'},
-    {id:2,date:'2025-01-20',vehicle:'TR-2890',type:'ซ่อม',details:'ซ่อมระบบเบรค',cost:4500,garage:'ศูนย์บริการมิตซู',status:'อยู่ระหว่างซ่อม'},
   ],
   users:[
     {id:1,name:'สมชัย ผู้ดูแล',email:'admin@ksk.co.th',role:'admin',dept:'ฝ่ายบริหาร',status:'ใช้งาน'},
-    {id:2,name:'วิภา ผู้จัดการ',email:'manager@ksk.co.th',role:'manager',dept:'ฝ่ายปฏิบัติการ',status:'ใช้งาน'},
-    {id:3,name:'สมชาย ขับรถ',email:'driver1@ksk.co.th',role:'driver',dept:'ฝ่ายขนส่ง',status:'ใช้งาน'},
   ],
   inspections:[]
 };
@@ -1508,6 +1496,9 @@ function toggleSidebar(){
 // ═══════════ HELPERS ═══════════
 function qCard(icon,label,val,unit,grad,tc){
   return `<div class="stat-card rounded-2xl p-4 card-hover"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center"><i data-lucide="${icon}" class="w-5 h-5 ${tc}"></i></div><div><p class="text-[11px] text-sidebar-text">${label}</p><p class="text-lg font-bold ${tc}">${val} <span class="text-xs font-normal text-sidebar-text">${unit}</span></p></div></div></div>`;
+}
+function qCardLg(icon,label,val,unit,grad,tc){
+  return `<div class="stat-card rounded-2xl p-5 card-hover"><div class="flex items-center gap-4"><div class="w-12 h-12 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center flex-shrink-0"><i data-lucide="${icon}" class="w-6 h-6 ${tc}"></i></div><div><p class="text-sm text-sidebar-text font-medium">${label}</p><p class="text-2xl font-bold ${tc} mt-0.5">${val} <span class="text-sm font-normal text-sidebar-text">${unit}</span></p></div></div></div>`;
 }
 function actItem(user,act,time,icon,col){
   return `<div class="flex items-start gap-3 p-3 rounded-xl hover:bg-sidebar-hover/50 transition"><div class="w-8 h-8 rounded-lg bg-sidebar-hover flex items-center justify-center flex-shrink-0"><i data-lucide="${icon}" class="w-4 h-4 ${col}"></i></div><div class="flex-1 min-w-0"><p class="text-sm"><span class="font-semibold">${user}</span> ${act}</p><p class="text-[11px] text-sidebar-text mt-0.5">${time}</p></div></div>`;
@@ -2446,7 +2437,7 @@ function renderDashboard(){
           <div class="flex-1 bg-sidebar-hover rounded-full h-1.5" style="min-width:60px">
             <div class="h-1.5 rounded-full bg-brand-info" style="width:${pct}%"></div>
           </div>
-          <span class="text-[11px] text-sidebar-text">${pct}%</span>
+          <span class="text-xs text-sidebar-text">${pct}%</span>
         </div>
       </td>
       <td>${sBadge(v.status)}</td>
@@ -2454,25 +2445,25 @@ function renderDashboard(){
   }).join('');
 
   return `<div class="fade-in space-y-6">
-    <h3 class="text-xl font-bold">📊 Executive Dashboard</h3>
+    <h3 class="text-2xl font-bold">📊 Executive Dashboard</h3>
 
     <!-- ── สถิติน้ำมันรายเดือนแยกคัน ── -->
     <div class="stat-card rounded-2xl p-5">
       <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-        <h4 class="font-semibold text-sm flex items-center gap-2"><i data-lucide="fuel" class="w-4 h-4 text-brand-info"></i>ปริมาณการใช้น้ำมันแต่ละคัน</h4>
+        <h4 class="font-bold text-base flex items-center gap-2"><i data-lucide="fuel" class="w-4 h-4 text-brand-info"></i>ปริมาณการใช้น้ำมันแต่ละคัน</h4>
         <div class="flex items-center gap-2">
           <label class="text-xs text-sidebar-text font-semibold">เดือน:</label>
-          <select id="dashMonthSelect" class="input-field text-xs" style="max-width:140px" onchange="updateDashFuelMonth(this.value)">
+          <select id="dashMonthSelect" class="input-field text-sm" style="max-width:160px" onchange="updateDashFuelMonth(this.value)">
             ${monthSelectHtml}
           </select>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-4" id="dashFuelSummary">
-        ${qCard('droplet','น้ำมันรวม (ลิตร)',totalLiters.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1}),'ล.','from-brand-info/20 to-brand-info/5','text-brand-info')}
-        ${qCard('banknote','ค่าน้ำมันรวม',totalCost.toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
+        ${qCardLg('droplet','น้ำมันรวม (ลิตร)',totalLiters.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1}),'ล.','from-brand-info/20 to-brand-info/5','text-brand-info')}
+        ${qCardLg('banknote','ค่าน้ำมันรวม',totalCost.toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full text-[12px]" id="dashFuelTable">
+        <table class="w-full text-sm" id="dashFuelTable">
           <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50">
             <th class="pb-3 pr-3">ทะเบียน</th>
             <th class="pb-3 pr-3">ยี่ห้อ/รุ่น</th>
@@ -2485,14 +2476,14 @@ function renderDashboard(){
           <tbody class="divide-y divide-sidebar-border/30" id="dashFuelBody">${fuelRows}</tbody>
         </table>
       </div>
-      <div class="mt-5"><h5 class="text-xs font-semibold text-sidebar-text mb-3">กราฟเปรียบเทียบปริมาณน้ำมัน (ลิตร) แต่ละคัน</h5>
+      <div class="mt-5"><h5 class="text-sm font-semibold text-sidebar-text mb-3">กราฟเปรียบเทียบปริมาณน้ำมัน (ลิตร) แต่ละคัน</h5>
         <div class="chart-container"><canvas id="fuelByVehicleChart"></canvas></div>
       </div>
     </div>
 
     <!-- ── กราฟแนวโน้มรายเดือน ── -->
     <div class="stat-card rounded-2xl p-5">
-      <h4 class="font-semibold mb-3 text-sm flex items-center gap-2"><i data-lucide="trending-up" class="w-4 h-4 text-brand-primary"></i>แนวโน้มการใช้น้ำมัน 6 เดือนย้อนหลัง (ลิตร)</h4>
+      <h4 class="font-bold mb-3 text-base flex items-center gap-2"><i data-lucide="trending-up" class="w-4 h-4 text-brand-primary"></i>แนวโน้มการใช้น้ำมัน 6 เดือนย้อนหลัง (ลิตร)</h4>
       <div style="position:relative;height:280px"><canvas id="fuelTrendChart"></canvas></div>
     </div>
 
@@ -2539,17 +2530,17 @@ function renderDashboard(){
       const fleetAvg = avgAll.length>0?(avgAll.reduce((s,x)=>s+x,0)/avgAll.length).toFixed(2):'—';
       return `<div class="stat-card rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
-          <h4 class="font-semibold text-sm flex items-center gap-2"><i data-lucide="gauge" class="w-4 h-4 text-orange-400"></i>อัตราสิ้นเปลืองน้ำมันแต่ละคัน (กม./ลิตร)</h4>
-          <span class="text-[11px] text-sidebar-text bg-sidebar-hover px-2 py-1 rounded-full">เกณฑ์ต่ำสุด ${systemSettings.efficiencyWarnBelow||7.5} กม./ล.</span>
+          <h4 class="font-bold text-base flex items-center gap-2"><i data-lucide="gauge" class="w-4 h-4 text-orange-400"></i>อัตราสิ้นเปลืองน้ำมันแต่ละคัน (กม./ลิตร)</h4>
+          <span class="text-xs text-sidebar-text bg-sidebar-hover px-2 py-1 rounded-full">เกณฑ์ต่ำสุด ${systemSettings.efficiencyWarnBelow||7.5} กม./ล.</span>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          ${qCard('gauge','ค่าเฉลี่ยทั้งฝูง',fleetAvg,'กม./ล.','from-orange-500/20 to-orange-500/5','text-orange-400')}
-          ${qCard('alert-triangle','ต่ำกว่าเกณฑ์',DB.vehicles.filter(v=>{const a=effByVehicle[v.plate]||[];const avg=a.length>0?a.reduce((s,x)=>s+x,0)/a.length:null;return avg!==null&&avg<(systemSettings.efficiencyWarnBelow||7.5);}).length,'คัน','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
-          ${qCard('check-circle','ผ่านเกณฑ์',DB.vehicles.filter(v=>{const a=effByVehicle[v.plate]||[];const avg=a.length>0?a.reduce((s,x)=>s+x,0)/a.length:null;return avg!==null&&avg>=(systemSettings.efficiencyWarnBelow||7.5);}).length,'คัน','from-brand-success/20 to-brand-success/5','text-brand-success')}
-          ${qCard('help-circle','ยังไม่มีข้อมูล',DB.vehicles.filter(v=>(effByVehicle[v.plate]||[]).length===0).length,'คัน','from-sidebar-hover/80 to-sidebar-hover/40','text-sidebar-text')}
+          ${qCardLg('gauge','ค่าเฉลี่ยทั้งฝูง',fleetAvg,'กม./ล.','from-orange-500/20 to-orange-500/5','text-orange-400')}
+          ${qCardLg('alert-triangle','ต่ำกว่าเกณฑ์',DB.vehicles.filter(v=>{const a=effByVehicle[v.plate]||[];const avg=a.length>0?a.reduce((s,x)=>s+x,0)/a.length:null;return avg!==null&&avg<(systemSettings.efficiencyWarnBelow||7.5);}).length,'คัน','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
+          ${qCardLg('check-circle','ผ่านเกณฑ์',DB.vehicles.filter(v=>{const a=effByVehicle[v.plate]||[];const avg=a.length>0?a.reduce((s,x)=>s+x,0)/a.length:null;return avg!==null&&avg>=(systemSettings.efficiencyWarnBelow||7.5);}).length,'คัน','from-brand-success/20 to-brand-success/5','text-brand-success')}
+          ${qCardLg('help-circle','ยังไม่มีข้อมูล',DB.vehicles.filter(v=>(effByVehicle[v.plate]||[]).length===0).length,'คัน','from-sidebar-hover/80 to-sidebar-hover/40','text-sidebar-text')}
         </div>
         <div class="overflow-x-auto mb-5">
-          <table class="w-full text-[12px]">
+          <table class="w-full text-sm">
             <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50">
               <th class="pb-3 pr-3">ทะเบียน</th><th class="pb-3 pr-3">ยี่ห้อ/รุ่น</th><th class="pb-3 pr-3">เชื้อเพลิง</th>
               <th class="pb-3 pr-3 text-center">ข้อมูล(ครั้ง)</th><th class="pb-3 pr-3">ค่าเฉลี่ย</th><th class="pb-3 pr-3">ครั้งล่าสุด</th><th class="pb-3">สถานะ</th>
@@ -2557,7 +2548,7 @@ function renderDashboard(){
             <tbody class="divide-y divide-sidebar-border/30">${effRows}</tbody>
           </table>
         </div>
-        <h5 class="text-xs font-semibold text-sidebar-text mb-3">กราฟอัตราสิ้นเปลืองแต่ละคัน (กม./ลิตร)</h5>
+        <h5 class="text-sm font-semibold text-sidebar-text mb-3">กราฟอัตราสิ้นเปลืองแต่ละคัน (กม./ลิตร)</h5>
         <div class="chart-container"><canvas id="efficiencyChart"></canvas></div>
       </div>`;
     })()}
@@ -2588,7 +2579,7 @@ function renderDashboard(){
               <div class="flex-1 bg-sidebar-hover rounded-full h-1.5" style="min-width:60px">
                 <div class="h-1.5 rounded-full bg-brand-danger" style="width:${pct}%"></div>
               </div>
-              <span class="text-[11px] text-sidebar-text">${pct}%</span>
+              <span class="text-xs text-sidebar-text">${pct}%</span>
             </div>
           </td>
           <td>${sBadge(v.status)}</td>
@@ -2604,18 +2595,18 @@ function renderDashboard(){
           <td>${sBadge(m.status)}</td>
         </tr>`).join('');
       return `<div class="stat-card rounded-2xl p-5">
-        <h4 class="font-semibold text-sm flex items-center gap-2 mb-4"><i data-lucide="wrench" class="w-4 h-4 text-brand-danger"></i>สถิติการบำรุงรักษา</h4>
+        <h4 class="font-bold text-base flex items-center gap-2 mb-4"><i data-lucide="wrench" class="w-4 h-4 text-brand-danger"></i>สถิติการบำรุงรักษา</h4>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-          ${qCard('wrench','ซ่อมบำรุงทั้งหมด',DB.maintenance.length,'ครั้ง','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
-          ${qCard('clock','กำลังซ่อม',inProgress.length,'คัน','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
-          ${qCard('check-circle','เสร็จแล้ว',done.length,'ครั้ง','from-brand-success/20 to-brand-success/5','text-brand-success')}
-          ${qCard('banknote','ค่าใช้จ่ายรวม',totalCost.toLocaleString(),'บาท','from-orange-500/20 to-orange-500/5','text-orange-400')}
+          ${qCardLg('wrench','ซ่อมบำรุงทั้งหมด',DB.maintenance.length,'ครั้ง','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
+          ${qCardLg('clock','กำลังซ่อม',inProgress.length,'คัน','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
+          ${qCardLg('check-circle','เสร็จแล้ว',done.length,'ครั้ง','from-brand-success/20 to-brand-success/5','text-brand-success')}
+          ${qCardLg('banknote','ค่าใช้จ่ายรวม',totalCost.toLocaleString(),'บาท','from-orange-500/20 to-orange-500/5','text-orange-400')}
         </div>
         <div class="grid lg:grid-cols-2 gap-5">
           <div>
-            <h5 class="text-xs font-semibold text-sidebar-text mb-3">ค่าซ่อมแยกตามยานพาหนะ</h5>
+            <h5 class="text-sm font-semibold text-sidebar-text mb-3">ค่าซ่อมแยกตามยานพาหนะ</h5>
             <div class="overflow-x-auto">
-              <table class="w-full text-[12px]">
+              <table class="w-full text-sm">
                 <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50">
                   <th class="pb-3 pr-3">ทะเบียน</th><th class="pb-3 pr-3">ยี่ห้อ/รุ่น</th>
                   <th class="pb-3 pr-3 text-center">ครั้ง</th><th class="pb-3 pr-3">ค่าใช้จ่าย</th>
@@ -2626,15 +2617,15 @@ function renderDashboard(){
             </div>
           </div>
           <div>
-            <h5 class="text-xs font-semibold text-sidebar-text mb-3">กราฟค่าซ่อมแยกตามประเภท</h5>
+            <h5 class="text-sm font-semibold text-sidebar-text mb-3">กราฟค่าซ่อมแยกตามประเภท</h5>
             <div class="chart-container"><canvas id="maintTypeChart"></canvas></div>
           </div>
         </div>
         ${DB.maintenance.length>0?`
         <div class="mt-5">
-          <h5 class="text-xs font-semibold text-sidebar-text mb-3">รายการซ่อมล่าสุด 5 รายการ</h5>
+          <h5 class="text-sm font-semibold text-sidebar-text mb-3">รายการซ่อมล่าสุด 5 รายการ</h5>
           <div class="overflow-x-auto">
-            <table class="w-full text-[12px]">
+            <table class="w-full text-sm">
               <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50">
                 <th class="pb-3 pr-3">วันที่</th><th class="pb-3 pr-3">ทะเบียน</th><th class="pb-3 pr-3">ประเภท</th>
                 <th class="pb-3 pr-3">รายละเอียด</th><th class="pb-3 pr-3">ค่าใช้จ่าย</th><th class="pb-3">สถานะ</th>
@@ -2647,14 +2638,14 @@ function renderDashboard(){
     })()}
 
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      ${qCard('truck','พร้อมใช้',DB.vehicles.filter(v=>v.status==='พร้อม').length+'/'+DB.vehicles.length,'คัน','from-brand-success/20 to-brand-success/5','text-brand-success')}
-      ${qCard('calendar','บันทึกเดือนนี้',DB.usageRecords.length,'ครั้ง','from-brand-primary/20 to-brand-primary/5','text-brand-primary')}
-      ${qCard('fuel','ค่าน้ำมันรวม',DB.fuelRecords.reduce((s,r)=>s+r.total,0).toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
-      ${qCard('wrench','ซ่อมบำรุง',DB.maintenance.filter(m=>m.status==='อยู่ระหว่างซ่อม').length,'คัน','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
+      ${qCardLg('truck','พร้อมใช้',DB.vehicles.filter(v=>v.status==='พร้อม').length+'/'+DB.vehicles.length,'คัน','from-brand-success/20 to-brand-success/5','text-brand-success')}
+      ${qCardLg('calendar','บันทึกเดือนนี้',DB.usageRecords.length,'ครั้ง','from-brand-primary/20 to-brand-primary/5','text-brand-primary')}
+      ${qCardLg('fuel','ค่าน้ำมันรวม',DB.fuelRecords.reduce((s,r)=>s+r.total,0).toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn')}
+      ${qCardLg('wrench','ซ่อมบำรุง',DB.maintenance.filter(m=>m.status==='อยู่ระหว่างซ่อม').length,'คัน','from-brand-danger/20 to-brand-danger/5','text-brand-danger')}
     </div>
     <div class="grid lg:grid-cols-2 gap-4">
-      <div class="stat-card rounded-2xl p-5"><h4 class="font-semibold mb-3 text-sm">สถิติการใช้รถรายเดือน</h4><div class="chart-container"><canvas id="bookingChart"></canvas></div></div>
-      <div class="stat-card rounded-2xl p-5"><h4 class="font-semibold mb-3 text-sm">สัดส่วนประเภทยานพาหนะ</h4><div class="chart-container"><canvas id="vehicleTypeChart"></canvas></div></div>
+      <div class="stat-card rounded-2xl p-5"><h4 class="font-bold mb-3 text-base">สถิติการใช้รถรายเดือน</h4><div class="chart-container"><canvas id="bookingChart"></canvas></div></div>
+      <div class="stat-card rounded-2xl p-5"><h4 class="font-bold mb-3 text-base">สัดส่วนประเภทยานพาหนะ</h4><div class="chart-container"><canvas id="vehicleTypeChart"></canvas></div></div>
     </div>
   </div>`;
 }
@@ -3415,6 +3406,12 @@ function confirmDeleteFuel(id){
   if(tbody && DB.fuelRecords.length===0){
     tbody.innerHTML=`<tr><td colspan="9" class="py-8 text-center text-sidebar-text text-sm">ยังไม่มีรายการเติมน้ำมัน</td></tr>`;
   }
+  // ── ลบออกจาก Google Sheet ด้วย (matchCol 0 = LogID) ──
+  fetch(webAppUrl, {
+    method: "POST", mode: "no-cors",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ action:'delete', sheetName:'Fuel_Log', matchCol:0, matchValue:id })
+  }).catch(err=>console.error('ลบจาก Sheet ไม่สำเร็จ:', err));
   showToast('ลบรายการเติมน้ำมันเรียบร้อย');
 }
 function submitFuel(){
@@ -3605,8 +3602,8 @@ function updateDashFuelMonth(ym){
   const summaryEl=document.getElementById('dashFuelSummary');
   if(summaryEl){
     summaryEl.innerHTML=
-      qCard('droplet','น้ำมันรวม (ลิตร)',totalLiters.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1}),'ล.','from-brand-info/20 to-brand-info/5','text-brand-info')+
-      qCard('banknote','ค่าน้ำมันรวม',totalCost.toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn');
+      qCardLg('droplet','น้ำมันรวม (ลิตร)',totalLiters.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1}),'ล.','from-brand-info/20 to-brand-info/5','text-brand-info')+
+      qCardLg('banknote','ค่าน้ำมันรวม',totalCost.toLocaleString(),'บาท','from-brand-warn/20 to-brand-warn/5','text-brand-warn');
     lucide.createIcons();
   }
 
@@ -3650,6 +3647,88 @@ lucide.createIcons();
 // --- โค้ดเชื่อมต่อหน้าเว็บเข้ากับ Google Apps Script Web App ---
 // ✅ กำหนด URL ตรงนี้ที่เดียว ทุกฟังก์ชันใช้ร่วมกันได้เลย
 const webAppUrl = "https://script.google.com/macros/s/AKfycbzkOLh45upSc8yDfgrSivjH9QvdFmPIeVTZsiiI23hF6YDVycKPSQ4jqTeEYQdwfc0zUg/exec";
+
+// ── ดึงข้อมูลทั้งหมดจาก Google Sheet มาเติมใน DB (เรียกตอน login สำเร็จ) ──
+// หมายเหตุ: ต้อง deploy Code.gs เวอร์ชันที่มี action=getData ก่อน ไม่งั้นจะได้ค่าว่าง
+async function loadAllDataFromSheet(){
+  const overlay = document.getElementById('dataLoadingOverlay');
+  if(overlay) overlay.classList.remove('hidden');
+  try{
+    const res = await fetch(webAppUrl + '?action=getData', { method:'GET' });
+    const json = await res.json();
+    if(!json || json.success !== true){
+      console.warn('⚠️ getData ไม่สำเร็จ หรือยังไม่ได้ deploy Code.gs เวอร์ชันใหม่:', json);
+      return false;
+    }
+
+    // ── แปลง Vehicle_Master (header ภาษาอังกฤษ) → DB.vehicles ──
+    DB.vehicles = (json.vehicles||[]).map(r=>({
+      id: r.VehicleID||r.Plate, plate: r.Plate||'', brand: r.Brand||'', model: r.Model||'',
+      type: r.Type||'', color: r.Color||'', year: +r.Year||'', mileage: +r.Mileage||0,
+      fuel: r.Fuel||'', seats: +r.Seats||0, status: r.Status||'พร้อม',
+      isAmbulance: r.IsAmbulance===true||r.IsAmbulance==='TRUE'||r.IsAmbulance===1||r.IsAmbulance==='1',
+      insurance: r.Insurance||'', insuranceExpiry: r.InsuranceExpiry||'', taxExpiry: r.TaxExpiry||'',
+      gpsEnabled: r.GPSEnabled===true||r.GPSEnabled==='TRUE'||r.GPSEnabled===1||r.GPSEnabled==='1',
+      gpsDeviceId: r.GPSDeviceID||'', gpsProvider: r.GPSProvider||'', gpsSimNo: r.GPSSimNo||'',
+      gpsInstallDate: r.GPSInstallDate||'', gpsLat: r.GPSLat||'', gpsLng: r.GPSLng||'',
+      gpsLocation: r.GPSLocation||'', gpsSignal: r.GPSSignal||'', gpsRemark: r.GPSRemark||''
+    }));
+
+    // ── Driver_List → DB.drivers ──
+    DB.drivers = (json.drivers||[]).map(r=>({
+      id: r.DriverID||r.Name, name: r.Name||'', license: r.LicenseNo||'', type: r.LicenseType||'',
+      expiry: r.LicenseExpiry||'', phone: r.Phone||'', startDate: r.StartDate||'', status: r.Status||'บัญชีงาน'
+    }));
+
+    // ── Vehicle_Log → DB.usageRecords ──
+    DB.usageRecords = (json.usageRecords||[]).map(r=>({
+      id: r.LogID||Date.now(), date: r.Date||'', vehicle: r.Vehicle||'', driver: r.Driver||'',
+      timeStart: r.TimeStart||'', timeEnd: r.TimeEnd||'',
+      mileageStart: +r.MileageStart||0, mileageEnd: +r.MileageEnd||0,
+      destination: r.Destination||'', purpose: r.Purpose||'', passengers: +r.Passengers||0, notes: r.Notes||''
+    }));
+
+    // ── Fuel_Log → DB.fuelRecords ──
+    DB.fuelRecords = (json.fuelRecords||[]).map(r=>({
+      id: r.LogID||Date.now(), date: r.Date||'', vehicle: r.Vehicle||'', driver: r.Driver||'',
+      liters: +r.Liters||0, pricePerLiter: +r.PricePerLiter||0, total: +r.TotalCost||0,
+      mileage: +r.Mileage||0, efficiency: +r.Efficiency||0
+    }));
+
+    // ── Maintenance_Log → DB.maintenance ──
+    DB.maintenance = (json.maintenance||[]).map(r=>({
+      id: r.LogID||Date.now(), date: r.Date||'', vehicle: r.Vehicle||'', type: r.Type||'',
+      details: r.Details||'', cost: +r.Cost||0, garage: r.Garage||'', status: r.Status||'เสร็จแล้ว'
+    }));
+
+    // ── System_Users → DB.users (เก็บ admin สำรองไว้เสมอ) ──
+    const sheetUsers = (json.users||[]).map(r=>({
+      id: r.UserID||r.Username, name: r.Name||'', email: r.Username||'', role: r.Role||'user',
+      dept: r.Department||'', status: r.Status||'ใช้งาน'
+    }));
+    DB.users = sheetUsers.length>0 ? sheetUsers : DB.users;
+
+    // ── Inspection_Log → DB.inspections ──
+    DB.inspections = (json.inspections||[]).map(r=>({
+      id: r.LogID||Date.now(), date: r.Date||'', vehicle: r.Vehicle||'', inspector: r.Inspector||'',
+      mileage: +r.Mileage||0, urgentCount: +r.UrgentCount||0, abnormalCount: +r.AbnormalCount||0,
+      failCount: +r.FailCount||0, urgentItems: r.UrgentItems||'', abnormalItems: r.AbnormalItems||'',
+      failItems: r.FailItems||'', remarks: r.Remarks||'', result: r.Result||''
+    }));
+
+    console.log('✅ โหลดข้อมูลจาก Google Sheet สำเร็จ:', {
+      vehicles: DB.vehicles.length, drivers: DB.drivers.length,
+      usageRecords: DB.usageRecords.length, fuelRecords: DB.fuelRecords.length,
+      maintenance: DB.maintenance.length, users: DB.users.length
+    });
+    return true;
+  }catch(err){
+    console.error('❌ โหลดข้อมูลจาก Google Sheet ไม่สำเร็จ:', err);
+    return false;
+  }finally{
+    if(overlay) overlay.classList.add('hidden');
+  }
+}
 
 // ── ฟังก์ชันกลางสำหรับส่งข้อมูลไป Google Apps Script (no-cors สำหรับ GitHub Pages) ──
 function _sendToSheet(payload, successMsg, resetFormId, extraOnSuccess) {
