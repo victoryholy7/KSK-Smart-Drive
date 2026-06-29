@@ -1336,7 +1336,7 @@ function doLogin(){
   _finishLogin('user');
 }
 
-async function _finishLogin(role){
+function _finishLogin(role){
   currentRole=role;
   const isAdmin=role==='admin';
   document.getElementById('sidebarUserName').textContent=isAdmin?(adminProfile.firstName+' '+adminProfile.lastName):'พนักงาน';
@@ -1346,10 +1346,17 @@ async function _finishLogin(role){
   badge.className=isAdmin?'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-brand-primary/20 text-brand-primaryLight':'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-600/30 text-gray-300';
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
-  // ── โหลดข้อมูลจริงจาก Google Sheet ก่อนแสดงผล (ไม่แสดง loading ให้เห็น) ──
-  await loadAllDataFromSheet();
   renderSidebar();
   navigateTo('home');
+  // ── โหลดข้อมูลจริงจาก Google Sheet แบบเบื้องหลัง (ไม่บล็อกการเข้าหน้าแรก) ──
+  // เข้าหน้าแรกด้วยข้อมูลว่างก่อน พอข้อมูลมาถึงค่อย refresh หน้าปัจจุบันให้เห็นข้อมูลจริง
+  loadAllDataFromSheet().then(success=>{
+    if(success){
+      renderSidebar();
+      // re-render หน้าที่กำลังเปิดอยู่ ด้วยข้อมูลที่โหลดมาใหม่
+      if(typeof currentPage!=='undefined' && currentPage) navigateTo(currentPage);
+    }
+  });
 }
 
 function handleLogout(){
