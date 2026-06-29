@@ -1162,12 +1162,6 @@ img,video{max-width:100%;height:auto}
 
 <!-- ═══════════════════════ MAIN APP ═══════════════════════ -->
 <div id="mainApp" class="h-full flex overflow-auto hidden">
-<div id="dataLoadingOverlay" class="hidden fixed inset-0 z-[9999] flex items-center justify-center" style="background:rgba(10,12,20,0.85);backdrop-filter:blur(4px)">
-  <div class="flex flex-col items-center gap-4">
-    <div class="w-12 h-12 border-4 border-brand-primary/30 border-t-brand-primary rounded-full animate-spin"></div>
-    <p class="text-sm text-sidebar-text">กำลังโหลดข้อมูลจาก Google Sheet...</p>
-  </div>
-</div>
   <div id="sidebarOverlay" class="overlay-bg fixed inset-0 z-30 hidden" onclick="toggleSidebar()"></div>
 
   <aside id="sidebar" class="sidebar-transition fixed lg:relative z-40 w-64 h-full bg-sidebar-bg border-r border-sidebar-border flex flex-col -translate-x-full lg:translate-x-0">
@@ -1352,7 +1346,7 @@ async function _finishLogin(role){
   badge.className=isAdmin?'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-brand-primary/20 text-brand-primaryLight':'text-[10px] px-2 py-0.5 rounded-full font-semibold bg-gray-600/30 text-gray-300';
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('mainApp').classList.remove('hidden');
-  // ── โหลดข้อมูลจริงจาก Google Sheet ก่อนแสดงผล ──
+  // ── โหลดข้อมูลจริงจาก Google Sheet ก่อนแสดงผล (ไม่แสดง loading ให้เห็น) ──
   await loadAllDataFromSheet();
   renderSidebar();
   navigateTo('home');
@@ -3651,8 +3645,6 @@ const webAppUrl = "https://script.google.com/macros/s/AKfycbzkOLh45upSc8yDfgrSiv
 // ── ดึงข้อมูลทั้งหมดจาก Google Sheet มาเติมใน DB (เรียกตอน login สำเร็จ) ──
 // หมายเหตุ: ต้อง deploy Code.gs เวอร์ชันที่มี action=getData ก่อน ไม่งั้นจะได้ค่าว่าง
 async function loadAllDataFromSheet(){
-  const overlay = document.getElementById('dataLoadingOverlay');
-  if(overlay) overlay.classList.remove('hidden');
   try{
     const res = await fetch(webAppUrl + '?action=getData', { method:'GET' });
     const json = await res.json();
@@ -3725,8 +3717,6 @@ async function loadAllDataFromSheet(){
   }catch(err){
     console.error('❌ โหลดข้อมูลจาก Google Sheet ไม่สำเร็จ:', err);
     return false;
-  }finally{
-    if(overlay) overlay.classList.add('hidden');
   }
 }
 
