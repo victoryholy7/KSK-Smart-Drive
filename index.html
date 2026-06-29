@@ -2360,10 +2360,17 @@ function renderHome(){
     <div class="stat-card rounded-2xl p-5">
       <h4 class="font-semibold mb-4 flex items-center gap-2"><i data-lucide="activity" class="w-4 h-4 text-brand-primary"></i>กิจกรรมล่าสุด</h4>
       <div class="space-y-3">
-        ${actItem('สมชาย ใจดี','บันทึกการใช้รถ Toyota Hiace HA-1234','10 นาทีที่แล้ว','car','text-brand-info')}
-        ${actItem('วิภา สุขสม','ตรวจสภาพรถ AM-0001 เสร็จสิ้น','25 นาทีที่แล้ว','clipboard-check','text-brand-success')}
-        ${actItem('ระบบ','ประกันรถ HA-1234 จะหมดอายุใน 15 วัน','1 ชั่วโมงที่แล้ว','alert-triangle','text-brand-warn')}
-        ${actItem('ช่าง','บันทึกซ่อมรถ TR-2890 ค่าใช้จ่าย 4,500 บาท','2 ชั่วโมงที่แล้ว','wrench','text-brand-danger')}
+        ${(()=>{
+          // รวมกิจกรรมจริงจากบันทึกการใช้รถ / เติมน้ำมัน / ซ่อมบำรุง เรียงตามวันที่ล่าสุด
+          const acts = [];
+          DB.usageRecords.forEach(r=>acts.push({date:r.date, user:r.driver||'-', label:`บันทึกการใช้รถ ${r.vehicle||'-'}`, icon:'car', color:'text-brand-info'}));
+          DB.maintenance.forEach(r=>acts.push({date:r.date, user:'ช่าง', label:`บันทึกซ่อมรถ ${r.vehicle||'-'} ค่าใช้จ่าย ${(r.cost||0).toLocaleString()} บาท`, icon:'wrench', color:'text-brand-danger'}));
+          DB.fuelRecords.forEach(r=>acts.push({date:r.date, user:r.driver||'-', label:`เติมน้ำมัน ${r.vehicle||'-'} ${r.liters||0} ลิตร`, icon:'fuel', color:'text-brand-warn'}));
+          acts.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+          const top = acts.slice(0,6);
+          if(top.length===0) return `<p class="text-sm text-sidebar-text text-center py-4">ยังไม่มีกิจกรรมที่บันทึกไว้</p>`;
+          return top.map(a=>actItem(a.user,a.label,fmtD(a.date),a.icon,a.color)).join('');
+        })()}
       </div>
     </div>
     <div class="stat-card rounded-2xl p-5">
