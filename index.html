@@ -2012,8 +2012,8 @@ function renderSettingsTab(tab){
         </select>`,'clock','text-brand-warn')}
       ${settingRow('รูปแบบวันที่','การแสดงผลวันที่ทั่วไปในระบบ',
         `<select id="s_dateFormat" class="input-field" style="max-width:180px">
+          <option value="YYYY/MM/DD" ${s.dateFormat==='YYYY/MM/DD'?'selected':''}>YYYY/MM/DD (พ.ศ.)</option>
           <option value="DD/MM/YYYY" ${s.dateFormat==='DD/MM/YYYY'?'selected':''}>DD/MM/YYYY</option>
-          <option value="MM/DD/YYYY" ${s.dateFormat==='MM/DD/YYYY'?'selected':''}>MM/DD/YYYY</option>
           <option value="YYYY-MM-DD" ${s.dateFormat==='YYYY-MM-DD'?'selected':''}>YYYY-MM-DD</option>
         </select>`,'calendar','text-sidebar-text')}
       ${settingRow('สกุลเงิน','หน่วยเงินที่ใช้แสดงในรายงานค่าใช้จ่าย',
