@@ -4144,5 +4144,69 @@ function saveGPSLog() {
   _sendToSheet(payload, "บันทึกข้อมูลและพิกัด GPS เรียบร้อยแล้วค่ะ!", 'gpsForm');
 }
   </script>
+<!-- วางไว้ส่วนท้ายของไฟล์ Index.html ก่อนปิด </body> -->
+<script>
+  /* =========================================================
+     ส่วนเสริม: ฟังก์ชันจัดการแสดงผลวันที่ และคำนวณระยะเวลา ประกัน/ภาษี
+     ========================================================= */
+
+  // 1. ฟังก์ชันจัดรูปแบบวันที่ให้เป็น วัน/เดือน/ปี (DD/MM/YYYY)
+  function formatDisplayDate(dateString) {
+    if (!dateString) return "-";
+    
+    // ถ้าข้อมูลถูกแปลงมาเป็น DD/MM/YYYY หรือ DD-MM-YYYY อยู่แล้ว ให้คืนค่าได้เลย
+    if (typeof dateString === 'string' && (dateString.includes('/') || dateString.includes('-'))) {
+      var parts = dateString.split(/[\/\-]/);
+      if (parts.length === 3 && parts[0].length <= 2) {
+        return ("0" + parts[0]).slice(-2) + "/" + ("0" + parts[1]).slice(-2) + "/" + parts[2];
+      }
+    }
+    
+    var d = new Date(dateString);
+    if (isNaN(d.getTime())) return dateString;
+    
+    var day = ("0" + d.getDate()).slice(-2);
+    var month = ("0" + (d.getMonth() + 1)).slice(-2);
+    var year = d.getFullYear();
+    
+    return day + "/" + month + "/" + year;
+  }
+
+  // 2. ฟังก์ชันคำนวณวันคงเหลือ ประกัน & ภาษี (แสดงผลเป็น "ปี" และ "วัน")
+  function calculateTaxInsuranceRemaining(expiryDateVal) {
+    if (!expiryDateVal) return "-";
+    
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    var expDate;
+    if (typeof expiryDateVal === 'string' && expiryDateVal.includes('/')) {
+      var parts = expiryDateVal.split('/');
+      expDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    } else {
+      expDate = new Date(expiryDateVal);
+    }
+    
+    if (isNaN(expDate.getTime())) return "-";
+    
+    var diffTime = expDate - today;
+    var totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (totalDays < 0) {
+      return "หมดอายุแล้ว";
+    }
+    
+    var years = Math.floor(totalDays / 365);
+    var remainingDays = totalDays % 365;
+    
+    var resultText = "";
+    if (years > 0) {
+      resultText += years + " ปี ";
+    }
+    resultText += remainingDays + " วัน";
+    
+    return resultText;
+  }
+</script>
 </body>
 </html>
