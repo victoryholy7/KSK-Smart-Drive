@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -2487,24 +2488,80 @@ function renderHome(){
   </div>`;
 }
 
-function getFuelMonthOptions(){
-  // รวบรวมเดือนที่มีข้อมูลจาก fuelRecords
-  const months = new Set();
-  const now = new Date();
-  // เพิ่มเดือนปัจจุบัน + 11 เดือนก่อนหน้าเสมอ
-  for(let i=0;i<12;i++){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.add(d.getFullYear()+'-'+ String(d.getMonth()+1).padStart(2,'0'));
+// ================================================================
+// 📅 Dashboard Month/Year — ใช้เดือน/พ.ศ. จากข้อมูลที่กรอกจริง
+// ---------------------------------------------------------------
+// รองรับวันที่ที่มาจาก Google Sheet ได้หลายรูปแบบ เช่น
+// 03/01/2568, 03/01/2025, 2025-01-03, 2568-01-03
+// และจะคืนค่าเป็นคีย์ ค.ศ. สำหรับคำนวณ เช่น 2025-01
+// ================================================================
+function _dashboardYearMonth(value){
+  if(value===null || value===undefined || value==='') return '';
+
+  // ถ้ามี Date object
+  if(Object.prototype.toString.call(value)==='[object Date]' && !isNaN(value.getTime())){
+    let y=value.getFullYear();
+    if(y>=2400) y-=543;
+    return y+'-'+String(value.getMonth()+1).padStart(2,'0');
   }
+
+  const s=String(value).trim();
+  if(!s || s==='undefined' || s==='null' || s==='NaN') return '';
+
+  // DD/MM/YYYY หรือ DD/MM/BBBB
+  let m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m){
+    let y=Number(m[3]);
+    if(y>=2400) y-=543;
+    const mo=Number(m[2]);
+    if(y>=1900 && y<=2200 && mo>=1 && mo<=12) return y+'-'+String(mo).padStart(2,'0');
+    return '';
+  }
+
+  // YYYY-MM-DD ทั้ง ค.ศ. และ พ.ศ.
+  m=s.match(/^(\d{4})[\-](\d{1,2})[\-](\d{1,2})/);
+  if(m){
+    let y=Number(m[1]);
+    if(y>=2400) y-=543;
+    const mo=Number(m[2]);
+    if(y>=1900 && y<=2200 && mo>=1 && mo<=12) return y+'-'+String(mo).padStart(2,'0');
+    return '';
+  }
+
+  // รูปแบบอื่นที่ Date parser อ่านได้
+  const d=new Date(s);
+  if(!isNaN(d.getTime())){
+    let y=d.getFullYear();
+    if(y>=2400) y-=543;
+    return y+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }
+  return '';
+}
+
+function getFuelMonthOptions(){
+  // แสดงเฉพาะเดือน/ปีที่มีการกรอกข้อมูลเติมน้ำมันจริง
+  // ไม่จำกัดแค่ 12 เดือนล่าสุด และไม่ให้ค่าขยะ เช่น undefined/NaN หลุดเข้ามา
+  const months = new Set();
   DB.fuelRecords.forEach(r=>{
-    if(r.date) months.add(r.date.slice(0,7));
+    const ym = r.MonthKey || _dashboardYearMonth(r.date);
+    if(/^\d{4}-(0[1-9]|1[0-2])$/.test(ym)) months.add(ym);
   });
+
+  // ถ้ายังไม่มีข้อมูล ให้แสดงเดือนปัจจุบันไว้ 1 รายการ
+  if(months.size===0){
+    const now=new Date();
+    months.add(now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'));
+  }
+
   return [...months].sort((a,b)=>b.localeCompare(a));
 }
 
 function getFuelStatsForMonth(ym){
   // ym = "YYYY-MM"
-  const records = DB.fuelRecords.filter(r=>r.date && r.date.slice(0,7)===ym);
+  const records = DB.fuelRecords.filter(r=>{
+    const rym = r.MonthKey || _dashboardYearMonth(r.date);
+    return rym===ym;
+  });
   const stats = {};
   DB.vehicles.forEach(v=>{ stats[v.plate]={liters:0,total:0,count:0,brand:v.brand,model:v.model,isAmbulance:v.isAmbulance,status:v.status}; });
   records.forEach(r=>{
@@ -2517,17 +2574,22 @@ function getFuelStatsForMonth(ym){
 }
 
 function thMonthLabel(ym){
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(ym||''))) return '';
   const [y,m] = ym.split('-');
   const thMonths=['','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-  const thY = +y+543;
-  return thMonths[+m]+' '+thY;
+  const thY = Number(y)+543;
+  return thMonths[Number(m)]+' '+thY;
 }
 
 function renderDashboard(){
-  const now = new Date();
-  const curYm = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
   const monthOpts = getFuelMonthOptions();
-  const monthSelectHtml = monthOpts.map(ym=>`<option value="${ym}" ${ym===curYm?'selected':''}>${thMonthLabel(ym)}</option>`).join('');
+  // เลือกเดือนแรกที่มีข้อมูลจริงเป็นค่าเริ่มต้น
+  const curYm = monthOpts[0] || _dashboardYearMonth(new Date());
+  const monthSelectHtml = monthOpts.map(ym=>{
+    const label=thMonthLabel(ym);
+    if(!label) return '';
+    return `<option value="${ym}" ${ym===curYm?'selected':''}>${label}</option>`;
+  }).join('');
   const stats = getFuelStatsForMonth(curYm);
   const totalLiters = Object.values(stats).reduce((s,x)=>s+x.liters,0);
   const totalCost   = Object.values(stats).reduce((s,x)=>s+x.total,0);
@@ -3606,7 +3668,7 @@ function initDashCharts(){
 
   // ── กราฟน้ำมันแยกคัน ──
   const selEl=document.getElementById('dashMonthSelect');
-  const ym=selEl?selEl.value:(new Date().getFullYear()+'-'+String(new Date().getMonth()+1).padStart(2,'0'));
+  const ym=selEl?selEl.value:(getFuelMonthOptions()[0]||_dashboardYearMonth(new Date()));
   _renderFuelByVehicleChart(ym);
 
   // ── กราฟแนวโน้ม 6 เดือน ──
@@ -3674,13 +3736,8 @@ function _renderFuelByVehicleChart(ym){
 }
 
 function _renderFuelTrendChart(){
-  // แสดง 6 เดือนล่าสุด แยกเส้นแต่ละคัน
-  const now=new Date();
-  const months=[];
-  for(let i=5;i>=0;i--){
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    months.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));
-  }
+  // แสดง 6 เดือนล่าสุดที่มีข้อมูลจริง
+  const months=getFuelMonthOptions().slice(0,6).reverse();
   const labels=months.map(ym=>thMonthLabel(ym));
   const palette=['#6c5ce7','#00cec9','#fdcb6e','#00b894','#ff6b6b','#74b9ff','#fd79a8','#e17055'];
   const datasets=DB.vehicles.map((v,i)=>{
