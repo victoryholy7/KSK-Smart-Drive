@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -1505,8 +1506,93 @@ function actItem(user,act,time,icon,col){
   return `<div class="flex items-start gap-3 p-3 rounded-xl hover:bg-sidebar-hover/50 transition"><div class="w-8 h-8 rounded-lg bg-sidebar-hover flex items-center justify-center flex-shrink-0"><i data-lucide="${icon}" class="w-4 h-4 ${col}"></i></div><div class="flex-1 min-w-0"><p class="text-sm"><span class="font-semibold">${user}</span> ${act}</p><p class="text-[11px] text-sidebar-text mt-0.5">${time}</p></div></div>`;
 }
 function sBadge(s){const m={'พร้อม':'bg-green-500/20 text-green-400','ใช้งาน':'bg-orange-500/20 text-orange-400','ซ่อม':'bg-red-500/20 text-red-400','บัญชีงาน':'bg-green-500/20 text-green-400','ลาพัก':'bg-yellow-500/20 text-yellow-400','เสร็จแล้ว':'bg-green-500/20 text-green-400','อยู่ระหว่างซ่อม':'bg-orange-500/20 text-orange-400','admin':'bg-brand-primary/20 text-brand-primary','manager':'bg-brand-accent/20 text-brand-accent','driver':'bg-brand-info/20 text-brand-info','user':'bg-gray-500/20 text-gray-300','ไม่ใช้งาน':'bg-red-500/20 text-red-400'};return `<span class="text-xs px-2 py-0.5 rounded-full font-semibold ${m[s]||'bg-gray-500/20 text-gray-300'}">${s}</span>`;}
-function fmtD(d){if(!d)return '-';return new Date(d).toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'2-digit'});}
-function dUntil(d){if(!d)return 999;return Math.ceil((new Date(d)-new Date())/86400000);}
+function _parseDateAny(v){
+  if(!v) return null;
+
+  // Date object จาก Google Sheets/Browser เป็น ค.ศ. อยู่แล้ว
+  if(v instanceof Date && !isNaN(v.getTime())) return new Date(v.getTime());
+
+  const s=String(v).trim();
+  if(!s) return null;
+
+  // DD/MM/YYYY หรือ DD-MM-YYYY
+  let m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m){
+    let y=+m[3];
+    // ถ้าเป็น พ.ศ. เช่น 2568 ให้แปลงกลับเป็น ค.ศ. ก่อนคำนวณ
+    if(y>=2400) y-=543;
+    const d=new Date(y,+m[2]-1,+m[1]);
+    return isNaN(d.getTime())?null:d;
+  }
+
+  // YYYY-MM-DD
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){
+    let y=+m[1];
+    // สำคัญ: ข้อมูลจาก Sheet บางกรณีมาเป็น 2568-01-03
+    // ซึ่ง 2568 คือ พ.ศ. ไม่ใช่ ค.ศ.
+    if(y>=2400) y-=543;
+    const d=new Date(y,+m[2]-1,+m[3]);
+    return isNaN(d.getTime())?null:d;
+  }
+
+  // ISO datetime เช่น 2568-01-03T00:00:00 หรือ 2026-01-03T00:00:00
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[T\s]/);
+  if(m){
+    let y=+m[1];
+    if(y>=2400) y-=543;
+    const d=new Date(y,+m[2]-1,+m[3]);
+    return isNaN(d.getTime())?null:d;
+  }
+
+  const d=new Date(s);
+  if(isNaN(d.getTime())) return null;
+
+  // ถ้า parse แล้วได้ปี พ.ศ. ให้แปลงกลับเป็น ค.ศ.
+  if(d.getFullYear()>=2400){
+    d.setFullYear(d.getFullYear()-543);
+  }
+  return d;
+}
+function fmtD(d){
+  if(!d)return '-';
+  const x=_parseDateAny(d); if(!x)return String(d);
+  const day=String(x.getDate()).padStart(2,'0');
+  const month=String(x.getMonth()+1).padStart(2,'0');
+  const year=x.getFullYear()+543;
+  return `${day}/${month}/${year}`;
+}
+function thaiDateInputValue(v){ return v ? fmtD(v).replace(/^-/,'') : ''; }
+function thaiDateToISO(v){
+  if(!v)return '';
+  const x=_parseDateAny(v); if(!x)return '';
+  return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+}
+function setThaiDateInput(id,v){ const el=document.getElementById(id); if(el) el.value=thaiDateInputValue(v); }
+function attachThaiDateMask(){
+  ['uDate','inspDate','vInsExpiry','vTaxExpiry','vGpsInstallDate','mDate','mNextDate','dExpiry','dStart','fDate','pStartDate'].forEach(id=>{
+    const el=document.getElementById(id); if(!el || el.dataset.thaiDateBound) return;
+    el.dataset.thaiDateBound='1';
+    el.addEventListener('input',function(){
+      let digits=this.value.replace(/\D/g,'').slice(0,8);
+      if(digits.length>4) digits=digits.slice(0,2)+'/'+digits.slice(2,4)+'/'+digits.slice(4);
+      else if(digits.length>2) digits=digits.slice(0,2)+'/'+digits.slice(2);
+      this.value=digits;
+    });
+    el.addEventListener('blur',function(){
+      if(this.value && !/^\d{2}\/\d{2}\/\d{4}$/.test(this.value)){
+        const iso=thaiDateToISO(this.value); if(iso) this.value=fmtD(iso);
+      }
+    });
+  });
+}
+
+function dUntil(d){
+  if(!d)return 999;
+  const x=_parseDateAny(d); if(!x)return 999;
+  const today=new Date(); today.setHours(0,0,0,0); x.setHours(0,0,0,0);
+  return Math.ceil((x-today)/86400000);
+}
 function showModal(html){document.getElementById('modalContainer').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal-box">${html}</div></div>`;lucide.createIcons();}
 function closeModal(){document.getElementById('modalContainer').innerHTML='';}
 function showToast(msg, type='success'){
@@ -1592,7 +1678,7 @@ function renderInspection(){
     <div class="stat-card rounded-2xl p-5">
       <div class="grid md:grid-cols-3 gap-4">
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ตรวจ</label>
-        <input type="date" id="inspDate" class="input-field" value="${new Date().toISOString().split('T')[0]}"></div>
+        <input type="text" id="inspDate" class="input-field" placeholder="03/01/2568" inputmode="numeric" maxlength="10" value="${fmtD(new Date())}"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ยานพาหนะ</label>
         <select id="inspVehicle" class="input-field" onchange="onVehicleChange(this)">${vOpts}</select></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ผู้ตรวจสภาพ</label>
@@ -1643,7 +1729,7 @@ function resetInsp(){
 function submitInspection(){
   const vehicle  = document.getElementById('inspVehicle')?.value;
   const driver   = document.getElementById('inspDriver')?.value;
-  const date     = document.getElementById('inspDate')?.value;
+  const date     = thaiDateToISO(document.getElementById('inspDate')?.value);
   const mileage  = document.getElementById('inspMileage')?.value;
   const remarks  = document.getElementById('inspRemarks')?.value||'';
 
@@ -1781,7 +1867,7 @@ function renderProfile(){
             </div>
             <div>
               <label class="block text-xs text-sidebar-text mb-2 font-semibold">วันเริ่มงาน</label>
-              <input type="date" id="pStartDate" value="${p.startDate}" class="input-field">
+              <input type="text" id="pStartDate" value="${thaiDateInputValue(p.startDate)}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field">
             </div>
           </div>
         </div>
@@ -1894,7 +1980,7 @@ function saveAdminProfile(){
   adminProfile.employeeId = document.getElementById('pEmpId')?.value || adminProfile.employeeId;
   adminProfile.position = document.getElementById('pPosition')?.value || adminProfile.position;
   adminProfile.department = document.getElementById('pDepartment')?.value || adminProfile.department;
-  adminProfile.startDate = document.getElementById('pStartDate')?.value || adminProfile.startDate;
+  adminProfile.startDate = thaiDateToISO(document.getElementById('pStartDate')?.value) || adminProfile.startDate;
   adminProfile.email = document.getElementById('pEmail')?.value || adminProfile.email;
   adminProfile.phone = document.getElementById('pPhone')?.value || adminProfile.phone;
   adminProfile.mobile = document.getElementById('pMobile')?.value || adminProfile.mobile;
@@ -2664,9 +2750,9 @@ function renderUsageEntry(){
   return `<div class="fade-in space-y-6"><h3 class="text-2xl font-bold flex items-center gap-3"><i data-lucide="edit" class="w-7 h-7 text-brand-primary"></i>กรอกข้อมูลการใช้รถ</h3>
     <div class="stat-card rounded-2xl p-6">
       <form id="usageEntryForm" onsubmit="event.preventDefault();submitUsage()" class="grid md:grid-cols-2 gap-4">
-        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ใช้รถ</label><input type="date" id="uDate" required class="input-field"></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ใช้รถ</label><input type="text" id="uDate" required class="input-field" placeholder="03/01/2568" inputmode="numeric" maxlength="10"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ยานพาหนะ</label><select id="uVehicle" required class="input-field"><option value="">-- เลือก --</option>${vO}</select></div>
-        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ผู้ขับรถ</label><select id="uDriver" required class="input-field"><option value="">-- เลือก --</option>${dO}</select></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ผู้ขับรถ</label><input type="text" id="uDriver" required class="input-field" placeholder="กรอกชื่อผู้ขับรถ"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ใบขับขี่</label><input type="text" id="uLicense" placeholder="เลขใบขับขี่" class="input-field"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เวลาออก</label><input type="time" id="uTimeStart" required class="input-field"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เวลากลับ</label><input type="time" id="uTimeEnd" required class="input-field"></div>
@@ -2686,7 +2772,7 @@ function renderUsageEntry(){
   </div>`;
 }
 function submitUsage(){
-  const v=document.getElementById('uVehicle').value,d=document.getElementById('uDriver').value,dt=document.getElementById('uDate').value;
+  const v=document.getElementById('uVehicle').value,d=document.getElementById('uDriver').value,dt=thaiDateToISO(document.getElementById('uDate').value);
   if(!v||!d||!dt)return;
   const ts=document.getElementById('uTimeStart').value,te=document.getElementById('uTimeEnd').value;
   const ms=+document.getElementById('uMileageStart').value||0,me=+document.getElementById('uMileageEnd').value||0;
@@ -2760,7 +2846,7 @@ function renderTracking(){
       <td class="pr-3 text-sidebar-textLight">${v.gpsProvider||'—'}</td>
       <td class="pr-3 text-sidebar-textLight">${v.gpsSimNo||'—'}</td>
       <td class="pr-3 ${sigCol} font-semibold">${v.gpsSignal||'—'}</td>
-      <td class="pr-3 text-sidebar-textLight">${v.gpsInstallDate?new Date(v.gpsInstallDate).toLocaleDateString('th-TH'):'—'}</td>
+      <td class="pr-3 text-sidebar-textLight">${v.gpsInstallDate?fmtD(v.gpsInstallDate):'—'}</td>
       <td class="flex gap-1 py-3">${mapBtn}${editBtn}</td>
     </tr>`;
   }).join('');
@@ -2871,7 +2957,7 @@ function buildMarkers(){
         ${v.gpsProvider?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">ผู้ให้บริการ</td><td>${v.gpsProvider}</td></tr>`:''}
         ${v.gpsSimNo?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">เบอร์ซิม</td><td>${v.gpsSimNo}</td></tr>`:''}
         ${v.gpsSignal?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">สัญญาณ</td><td style="color:${sigCol};font-weight:700">${v.gpsSignal}</td></tr>`:''}
-        ${v.gpsInstallDate?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">ติดตั้ง</td><td>${new Date(v.gpsInstallDate).toLocaleDateString('th-TH')}</td></tr>`:''}
+        ${v.gpsInstallDate?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">ติดตั้ง</td><td>${fmtD(v.gpsInstallDate)}</td></tr>`:''}
         ${v.gpsRemark?`<tr><td style="color:#64748b;padding:2px 8px 2px 0">หมายเหตุ</td><td>${v.gpsRemark}</td></tr>`:''}
       </table>
       <a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" style="display:inline-block;margin-top:8px;padding:5px 12px;background:#6c5ce7;color:white;border-radius:6px;font-size:11px;font-weight:700;text-decoration:none">🗺️ เปิด Google Maps</a>
@@ -2960,8 +3046,8 @@ function openAddVehicleModal(editId){
           <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เชื้อเพลิง</label><select id="vFuel" class="input-field">${['ดีเซล','เบนซิน','ไฟฟ้า','ไฮบริด'].map(f=>`<option ${v&&v.fuel===f?'selected':''}>${f}</option>`).join('')}</select></div>
           <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เลขไมล์ *</label><input type="number" id="vMileage" value="${v?v.mileage:''}" required class="input-field"></div>
           <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">สถานะ</label><select id="vStatus" class="input-field">${['พร้อม','ใช้งาน','ซ่อม'].map(s=>`<option ${v&&v.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-          <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุประกัน</label><input type="date" id="vInsExpiry" value="${v?v.insuranceExpiry:''}" class="input-field"></div>
-          <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุภาษี</label><input type="date" id="vTaxExpiry" value="${v?v.taxExpiry:''}" class="input-field"></div>
+          <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุประกัน</label><input type="text" id="vInsExpiry" value="${v?thaiDateInputValue(v.insuranceExpiry):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field"></div>
+          <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุภาษี</label><input type="text" id="vTaxExpiry" value="${v?thaiDateInputValue(v.taxExpiry):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field"></div>
           <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ประเภทประกัน</label><select id="vIns" class="input-field">${['พ.ร.บ.','ประกันชั้น 1','ประกันชั้น 2','ประกันชั้น 3'].map(i=>`<option ${v&&v.insurance===i?'selected':''}>${i}</option>`).join('')}</select></div>
         </div>
         <div class="flex items-center gap-3 mt-3">
@@ -3005,7 +3091,7 @@ function openAddVehicleModal(editId){
             </div>
             <div>
               <label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ติดตั้ง GPS</label>
-              <input type="date" id="vGpsInstallDate" value="${v&&v.gpsInstallDate?v.gpsInstallDate:''}" class="input-field">
+              <input type="text" id="vGpsInstallDate" value="${v&&v.gpsInstallDate?thaiDateInputValue(v.gpsInstallDate):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field">
             </div>
             <div class="md:col-span-2">
               <label class="block text-xs text-sidebar-text mb-2 font-semibold">หมายเหตุ GPS</label>
@@ -3090,14 +3176,14 @@ function saveVehicle(editId){
     mileage:+document.getElementById('vMileage').value||0,
     status:document.getElementById('vStatus').value,
     insurance:document.getElementById('vIns').value,
-    insuranceExpiry:document.getElementById('vInsExpiry').value,
-    taxExpiry:document.getElementById('vTaxExpiry').value,
+    insuranceExpiry:thaiDateToISO(document.getElementById('vInsExpiry').value),
+    taxExpiry:thaiDateToISO(document.getElementById('vTaxExpiry').value),
     isAmbulance:document.getElementById('vIsAmb').checked,
     gpsEnabled:gpsOn,
     gpsDeviceId:gpsOn?(document.getElementById('vGpsDeviceId')?.value||''):'',
     gpsProvider:gpsOn?(document.getElementById('vGpsProvider')?.value||''):'',
     gpsSimNo:gpsOn?(document.getElementById('vGpsSimNo')?.value||''):'',
-    gpsInstallDate:gpsOn?(document.getElementById('vGpsInstallDate')?.value||''):'',
+    gpsInstallDate:gpsOn?thaiDateToISO(document.getElementById('vGpsInstallDate')?.value||''):'',
     gpsRemark:gpsOn?(document.getElementById('vGpsRemark')?.value||''):'',
     gpsLat:gpsOn?(document.getElementById('vGpsLat')?.value?.trim()||''):'',
     gpsLng:gpsOn?(document.getElementById('vGpsLng')?.value?.trim()||''):'',
@@ -3141,7 +3227,7 @@ function viewGPS(id){
         {icon:'cpu',label:'Device ID',val:v.gpsDeviceId||'—',col:'text-brand-info'},
         {icon:'building',label:'ผู้ให้บริการ',val:v.gpsProvider||'—',col:'text-brand-accent'},
         {icon:'smartphone',label:'เบอร์ซิม GPS',val:v.gpsSimNo||'—',col:'text-white'},
-        {icon:'calendar',label:'วันที่ติดตั้ง',val:v.gpsInstallDate?new Date(v.gpsInstallDate).toLocaleDateString('th-TH'):'—',col:'text-white'},
+        {icon:'calendar',label:'วันที่ติดตั้ง',val:v.gpsInstallDate?fmtD(v.gpsInstallDate):'—',col:'text-white'},
       ].map(r=>`
         <div class="bg-sidebar-hover rounded-xl p-3 flex items-start gap-3">
           <div class="w-7 h-7 rounded-lg bg-sidebar-active flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -3195,14 +3281,14 @@ function openMaintModal(editId){
   showModal(`<div class="p-6">
     <div class="flex items-center justify-between mb-6"><h3 class="text-lg font-bold flex items-center gap-2"><i data-lucide="wrench" class="w-5 h-5 text-brand-danger"></i>${m?'แก้ไข':'บันทึกใหม่'}</h3><button onclick="closeModal()" class="p-2 hover:bg-sidebar-hover rounded-lg text-sidebar-text"><i data-lucide="x" class="w-4 h-4"></i></button></div>
     <form onsubmit="event.preventDefault();saveMaint(${editId||'null'})" class="grid md:grid-cols-2 gap-4">
-      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ *</label><input type="date" id="mDate" value="${m?m.date:''}" required class="input-field"></div>
+      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่ *</label><input type="text" id="mDate" value="${m?thaiDateInputValue(m.date):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" required class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ยานพาหนะ *</label><select id="mVehicle" required class="input-field"><option value="">-- เลือก --</option>${vO}</select></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ประเภท *</label><select id="mType" required class="input-field">${['ประจำวัน','ประจำเดือน','ประจำปี','ซ่อมฉุกเฉิน','เปลี่ยนอะไหล่','ตรวจสภาพ'].map(t=>`<option ${m&&m.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">อู่/ศูนย์บริการ</label><input type="text" id="mGarage" value="${m?m.garage:''}" class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เลขไมล์</label><input type="number" id="mMileage" value="${m?m.mileage||'':''}" placeholder="0" class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ค่าใช้จ่าย (บาท) *</label><input type="number" id="mCost" value="${m?m.cost:''}" step="0.01" required class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">สถานะ</label><select id="mStatus" class="input-field">${['เสร็จแล้ว','อยู่ระหว่างซ่อม','รอชิ้นส่วน'].map(s=>`<option ${m&&m.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">นัดซ่อมครั้งถัดไป</label><input type="date" id="mNextDate" value="${m?m.nextDate||'':''}" class="input-field"></div>
+      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">นัดซ่อมครั้งถัดไป</label><input type="text" id="mNextDate" value="${m?thaiDateInputValue(m.nextDate||''):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field"></div>
       <div class="md:col-span-2"><label class="block text-xs text-sidebar-text mb-2 font-semibold">รายละเอียด *</label><textarea id="mDetails" rows="3" required class="input-field">${m?m.details:''}</textarea></div>
       <div class="md:col-span-2 flex justify-end gap-3 pt-2">
         <button type="button" onclick="closeModal()" class="px-4 py-2.5 bg-sidebar-hover rounded-xl text-sm font-semibold">ยกเลิก</button>
@@ -3212,7 +3298,7 @@ function openMaintModal(editId){
   </div>`);
 }
 function saveMaint(editId){
-  const data={date:document.getElementById('mDate').value,vehicle:document.getElementById('mVehicle').value,type:document.getElementById('mType').value,garage:document.getElementById('mGarage').value,mileage:+document.getElementById('mMileage').value||0,cost:+document.getElementById('mCost').value||0,status:document.getElementById('mStatus').value,nextDate:document.getElementById('mNextDate').value,details:document.getElementById('mDetails').value};
+  const data={date:thaiDateToISO(document.getElementById('mDate').value),vehicle:document.getElementById('mVehicle').value,type:document.getElementById('mType').value,garage:document.getElementById('mGarage').value,mileage:+document.getElementById('mMileage').value||0,cost:+document.getElementById('mCost').value||0,status:document.getElementById('mStatus').value,nextDate:thaiDateToISO(document.getElementById('mNextDate').value),details:document.getElementById('mDetails').value};
   if(editId){const i=DB.maintenance.findIndex(m=>m.id===editId);if(i>=0)DB.maintenance[i]={...DB.maintenance[i],...data};}
   else{data.id=Date.now();DB.maintenance.push(data);}
   // ── ส่งไป Google Sheet ──
@@ -3226,15 +3312,15 @@ function saveMaint(editId){
 function editMaint(id){openMaintModal(id);}
 
 function renderInsurance(){
-  const all=DB.vehicles.map(v=>({v,ins:dUntil(v.insuranceExpiry),tax:dUntil(v.taxExpiry)}));
+  const all=DB.vehicles.map(v=>({v,ins:dUntil(v.insuranceExpiry),tax:dUntil(v.taxExpiry),insText:calculateTaxInsuranceRemaining(v.insuranceExpiry),taxText:calculateTaxInsuranceRemaining(v.taxExpiry)}));
   const expiring=all.filter(i=>i.ins<=60||i.tax<=60);
   expiringItems=all.filter(i=>i.ins<=30||i.tax<=30).length;
   return `<div class="fade-in space-y-6"><h3 class="text-xl font-bold">🛡️ ประกัน & ภาษี</h3>
-    ${expiring.length?`<div class="space-y-3"><h4 class="font-semibold text-brand-warn flex items-center gap-2"><i data-lucide="alert-triangle" class="w-4 h-4"></i>ใกล้หมดอายุ</h4>${expiring.map(({v,ins,tax})=>`<div class="stat-card rounded-2xl p-4 border-l-4 ${ins<=30||tax<=30?'border-l-brand-danger':'border-l-brand-warn'}"><div class="flex justify-between items-start"><div><p class="font-semibold text-sm">${v.plate} - ${v.brand} ${v.model}</p><p class="text-xs text-sidebar-text mt-1">${ins<=60?'ประกัน: '+ins+' วัน':''} ${tax<=60?'ภาษี: '+tax+' วัน':''}</p></div><span class="text-xs px-2 py-1 rounded-full bg-brand-warn/20 text-brand-warn">⚠️</span></div></div>`).join('')}</div>`:''}
+    ${expiring.length?`<div class="space-y-3"><h4 class="font-semibold text-brand-warn flex items-center gap-2"><i data-lucide="alert-triangle" class="w-4 h-4"></i>ใกล้หมดอายุ</h4>${expiring.map(({v,ins,tax,insText,taxText})=>`<div class="stat-card rounded-2xl p-4 border-l-4 ${ins<=30||tax<=30?'border-l-brand-danger':'border-l-brand-warn'}"><div class="flex justify-between items-start"><div><p class="font-semibold text-sm">${v.plate} - ${v.brand} ${v.model}</p><p class="text-xs text-sidebar-text mt-1">${ins<=60?'ประกัน: '+insText:''} ${tax<=60?'ภาษี: '+taxText:''}</p></div><span class="text-xs px-2 py-1 rounded-full bg-brand-warn/20 text-brand-warn">⚠️</span></div></div>`).join('')}</div>`:''}
     <div class="stat-card rounded-2xl p-5 overflow-x-auto">
       <table class="w-full text-[12px]">
         <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50"><th class="pb-3 pr-3">ทะเบียน</th><th class="pb-3 pr-3">ยี่ห้อ/รุ่น</th><th class="pb-3 pr-3">ประกัน</th><th class="pb-3 pr-3">หมดอายุประกัน</th><th class="pb-3 pr-3">เหลือ</th><th class="pb-3 pr-3">หมดอายุภาษี</th><th class="pb-3">เหลือ</th></tr></thead>
-        <tbody class="divide-y divide-sidebar-border/30">${all.map(({v,ins,tax})=>`<tr class="hover:bg-sidebar-hover/30 transition"><td class="py-3 pr-3 font-mono text-brand-primaryLight font-semibold">${v.plate}</td><td class="pr-3 text-sidebar-textLight">${v.brand} ${v.model}</td><td class="pr-3 text-sidebar-text">${v.insurance}</td><td class="pr-3 text-sidebar-textLight">${fmtD(v.insuranceExpiry)}</td><td class="pr-3 font-semibold ${ins<=30?'text-brand-danger':ins<=60?'text-brand-warn':'text-brand-success'}">${ins>0?ins+' วัน':'หมดอายุ'}</td><td class="pr-3 text-sidebar-textLight">${fmtD(v.taxExpiry)}</td><td class="font-semibold ${tax<=30?'text-brand-danger':tax<=60?'text-brand-warn':'text-brand-success'}">${tax>0?tax+' วัน':'หมดอายุ'}</td></tr>`).join('')}</tbody>
+        <tbody class="divide-y divide-sidebar-border/30">${all.map(({v,ins,tax,insText,taxText})=>`<tr class="hover:bg-sidebar-hover/30 transition"><td class="py-3 pr-3 font-mono text-brand-primaryLight font-semibold">${v.plate}</td><td class="pr-3 text-sidebar-textLight">${v.brand} ${v.model}</td><td class="pr-3 text-sidebar-text">${v.insurance}</td><td class="pr-3 text-sidebar-textLight">${fmtD(v.insuranceExpiry)}</td><td class="pr-3 font-semibold ${ins<=30?'text-brand-danger':ins<=60?'text-brand-warn':'text-brand-success'}">${insText}</td><td class="pr-3 text-sidebar-textLight">${fmtD(v.taxExpiry)}</td><td class="font-semibold ${tax<=30?'text-brand-danger':tax<=60?'text-brand-warn':'text-brand-success'}">${taxText}</td></tr>`).join('')}</tbody>
       </table>
     </div>
   </div>`;
@@ -3260,9 +3346,9 @@ function openDriverModal(editId){
       <div class="md:col-span-2"><label class="block text-xs text-sidebar-text mb-2 font-semibold">ชื่อ-นามสกุล *</label><input type="text" id="dName" value="${d?d.name:''}" required class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เลขใบขับขี่ *</label><input type="text" id="dLicense" value="${d?d.license:''}" required class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ประเภท</label><select id="dType" class="input-field">${['ประเภท 1','ประเภท 2','ประเภท 3','ประเภท 4'].map(t=>`<option ${d&&d.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
-      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุ</label><input type="date" id="dExpiry" value="${d?d.expiry:''}" class="input-field"></div>
+      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">หมดอายุ</label><input type="text" id="dExpiry" value="${d?thaiDateInputValue(d.expiry):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เบอร์โทร *</label><input type="tel" id="dPhone" value="${d?d.phone:''}" required class="input-field"></div>
-      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันเริ่มงาน</label><input type="date" id="dStart" value="${d?d.startDate:''}" class="input-field"></div>
+      <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันเริ่มงาน</label><input type="text" id="dStart" value="${d?thaiDateInputValue(d.startDate):''}" placeholder="03/01/2568" inputmode="numeric" maxlength="10" class="input-field"></div>
       <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">สถานะ</label><select id="dStatus" class="input-field">${['บัญชีงาน','ลาพัก','ไม่ปฏิบัติงาน'].map(s=>`<option ${d&&d.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
       <div class="md:col-span-2 flex justify-end gap-3 pt-2">
         <button type="button" onclick="closeModal()" class="px-4 py-2.5 bg-sidebar-hover rounded-xl text-sm font-semibold">ยกเลิก</button>
@@ -3272,7 +3358,7 @@ function openDriverModal(editId){
   </div>`);
 }
 function saveDriver(editId){
-  const data={name:document.getElementById('dName').value,license:document.getElementById('dLicense').value,type:document.getElementById('dType').value,expiry:document.getElementById('dExpiry').value,phone:document.getElementById('dPhone').value,startDate:document.getElementById('dStart').value,status:document.getElementById('dStatus').value};
+  const data={name:document.getElementById('dName').value,license:document.getElementById('dLicense').value,type:document.getElementById('dType').value,expiry:thaiDateToISO(document.getElementById('dExpiry').value),phone:document.getElementById('dPhone').value,startDate:thaiDateToISO(document.getElementById('dStart').value),status:document.getElementById('dStatus').value};
   if(editId){const i=DB.drivers.findIndex(d=>d.id===editId);if(i>=0)DB.drivers[i]={...DB.drivers[i],...data};}
   else{data.id=Date.now();DB.drivers.push(data);}
   // ── ส่งไป Google Sheet ──
@@ -3351,9 +3437,9 @@ function renderFuel(){
   return `<div class="fade-in space-y-6"><h3 class="text-2xl font-bold flex items-center gap-3"><i data-lucide="fuel" class="w-7 h-7 text-brand-primary"></i>บันทึกการเติมน้ำมัน</h3>
     <div class="stat-card rounded-2xl p-6">
       <form id="fuelForm" onsubmit="event.preventDefault();submitFuel()" class="grid md:grid-cols-2 gap-4">
-        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่</label><input type="date" id="fDate" required class="input-field"></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">วันที่</label><input type="text" id="fDate" required class="input-field" placeholder="03/01/2568" inputmode="numeric" maxlength="10"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ยานพาหนะ</label><select id="fVehicle" required class="input-field"><option value="">-- เลือก --</option>${vO}</select></div>
-        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">คนขับ</label><select id="fDriver" required class="input-field"><option value="">-- เลือก --</option>${dO}</select></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">คนขับ</label><input type="text" id="fDriver" required class="input-field" placeholder="กรอกชื่อคนขับ"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ปริมาณ (ลิตร)</label><input type="number" id="fLiters" step="0.5" required class="input-field"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ราคา/ลิตร</label><input type="number" id="fPrice" step="0.01" required class="input-field"></div>
         <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">เลขไมล์</label><input type="number" id="fMileage" required class="input-field"></div>
@@ -3423,7 +3509,7 @@ function confirmDeleteFuel(id){
   showToast('ลบรายการเติมน้ำมันเรียบร้อย');
 }
 function submitFuel(){
-  const v=document.getElementById('fVehicle').value,dt=document.getElementById('fDate').value;
+  const v=document.getElementById('fVehicle').value,dt=thaiDateToISO(document.getElementById('fDate').value);
   if(!v||!dt)return;
   const l=+document.getElementById('fLiters').value||0,p=+document.getElementById('fPrice').value||0;
   const driver=document.getElementById('fDriver').value;
@@ -4172,41 +4258,35 @@ function saveGPSLog() {
     return day + "/" + month + "/" + year;
   }
 
-  // 2. ฟังก์ชันคำนวณวันคงเหลือ ประกัน & ภาษี (แสดงผลเป็น "ปี" และ "วัน")
+  // 2. คำนวณวันคงเหลือ ประกัน & ภาษี เป็น ปี / เดือน / วัน
   function calculateTaxInsuranceRemaining(expiryDateVal) {
     if (!expiryDateVal) return "-";
-    
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    var expDate;
-    if (typeof expiryDateVal === 'string' && expiryDateVal.includes('/')) {
-      var parts = expiryDateVal.split('/');
-      expDate = new Date(parts[2], parts[1] - 1, parts[0]);
-    } else {
-      expDate = new Date(expiryDateVal);
+    const exp=_parseDateAny(expiryDateVal);
+    if(!exp) return "-";
+    const today=new Date(); today.setHours(0,0,0,0);
+    exp.setHours(0,0,0,0);
+    if(exp<today) return "หมดอายุแล้ว";
+
+    let cursor=new Date(today);
+    let years=0, months=0;
+    while(true){
+      const next=new Date(cursor.getFullYear()+1,cursor.getMonth(),cursor.getDate());
+      if(next>exp) break;
+      years++; cursor=next;
     }
-    
-    if (isNaN(expDate.getTime())) return "-";
-    
-    var diffTime = expDate - today;
-    var totalDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (totalDays < 0) {
-      return "หมดอายุแล้ว";
+    while(true){
+      const next=new Date(cursor.getFullYear(),cursor.getMonth()+1,cursor.getDate());
+      if(next>exp) break;
+      months++; cursor=next;
     }
-    
-    var years = Math.floor(totalDays / 365);
-    var remainingDays = totalDays % 365;
-    
-    var resultText = "";
-    if (years > 0) {
-      resultText += years + " ปี ";
-    }
-    resultText += remainingDays + " วัน";
-    
-    return resultText;
+    const days=Math.floor((exp-cursor)/86400000);
+    const parts=[];
+    if(years) parts.push(years+' ปี');
+    if(months) parts.push(months+' เดือน');
+    if(days || !parts.length) parts.push(days+' วัน');
+    return parts.join(' ');
   }
+
 </script>
 </body>
 </html>
