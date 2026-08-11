@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -1507,40 +1506,45 @@ function actItem(user,act,time,icon,col){
 }
 function sBadge(s){const m={'พร้อม':'bg-green-500/20 text-green-400','ใช้งาน':'bg-orange-500/20 text-orange-400','ซ่อม':'bg-red-500/20 text-red-400','บัญชีงาน':'bg-green-500/20 text-green-400','ลาพัก':'bg-yellow-500/20 text-yellow-400','เสร็จแล้ว':'bg-green-500/20 text-green-400','อยู่ระหว่างซ่อม':'bg-orange-500/20 text-orange-400','admin':'bg-brand-primary/20 text-brand-primary','manager':'bg-brand-accent/20 text-brand-accent','driver':'bg-brand-info/20 text-brand-info','user':'bg-gray-500/20 text-gray-300','ไม่ใช้งาน':'bg-red-500/20 text-red-400'};return `<span class="text-xs px-2 py-0.5 rounded-full font-semibold ${m[s]||'bg-gray-500/20 text-gray-300'}">${s}</span>`;}
 function _parseDateAny(v){
-  if(!v) return null;
+  if(v===null || v===undefined || v==='') return null;
 
-  // Date object จาก Google Sheets/Browser เป็น ค.ศ. อยู่แล้ว
-  if(v instanceof Date && !isNaN(v.getTime())) return new Date(v.getTime());
+  // Date object
+  if(Object.prototype.toString.call(v)==='[object Date]'){
+    if(isNaN(v.getTime())) return null;
+    const d=new Date(v.getTime());
+    if(d.getFullYear()>=2400) d.setFullYear(d.getFullYear()-543);
+    return d;
+  }
 
-  const s=String(v).trim();
+  let s=String(v).trim();
   if(!s) return null;
 
   // DD/MM/YYYY หรือ DD-MM-YYYY
   let m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if(m){
     let y=+m[3];
-    // ถ้าเป็น พ.ศ. เช่น 2568 ให้แปลงกลับเป็น ค.ศ. ก่อนคำนวณ
+
+    // พ.ศ. ปกติ เช่น 2568
+    if(y>=2400 && y<3000) y-=543;
+
+    // ป้องกันข้อมูลที่เคยถูกบวก 543 ซ้ำ เช่น 3111
+    // 3111 - 543 = 2568 (พ.ศ.)
+    if(y>=3000 && y<4000) y-=543;
     if(y>=2400) y-=543;
+
     const d=new Date(y,+m[2]-1,+m[1]);
     return isNaN(d.getTime())?null:d;
   }
 
   // YYYY-MM-DD
-  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]|$)/);
   if(m){
     let y=+m[1];
-    // สำคัญ: ข้อมูลจาก Sheet บางกรณีมาเป็น 2568-01-03
-    // ซึ่ง 2568 คือ พ.ศ. ไม่ใช่ ค.ศ.
-    if(y>=2400) y-=543;
-    const d=new Date(y,+m[2]-1,+m[3]);
-    return isNaN(d.getTime())?null:d;
-  }
 
-  // ISO datetime เช่น 2568-01-03T00:00:00 หรือ 2026-01-03T00:00:00
-  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[T\s]/);
-  if(m){
-    let y=+m[1];
+    if(y>=2400 && y<3000) y-=543;
+    if(y>=3000 && y<4000) y-=543;
     if(y>=2400) y-=543;
+
     const d=new Date(y,+m[2]-1,+m[3]);
     return isNaN(d.getTime())?null:d;
   }
@@ -1548,21 +1552,32 @@ function _parseDateAny(v){
   const d=new Date(s);
   if(isNaN(d.getTime())) return null;
 
-  // ถ้า parse แล้วได้ปี พ.ศ. ให้แปลงกลับเป็น ค.ศ.
-  if(d.getFullYear()>=2400){
-    d.setFullYear(d.getFullYear()-543);
-  }
+  if(d.getFullYear()>=2400) d.setFullYear(d.getFullYear()-543);
   return d;
 }
 function fmtD(d){
   if(!d)return '-';
-  const x=_parseDateAny(d); if(!x)return String(d);
+
+  // ถ้าข้อมูลเดิมเคยถูกแปลงเป็น 3111 ให้แก้กลับก่อน
+  // เพื่อให้ข้อมูลเก่าใน Google Sheet ยังแสดงเป็น พ.ศ. ถูกต้อง
+  let raw=String(d).trim();
+  const legacy=raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(legacy && +legacy[3]>=3000 && +legacy[3]<4000){
+    raw=`${legacy[1]}/${legacy[2]}/${+legacy[3]-543}`;
+  }
+
+  const x=_parseDateAny(raw);
+  if(!x)return String(d);
+
   const day=String(x.getDate()).padStart(2,'0');
   const month=String(x.getMonth()+1).padStart(2,'0');
   const year=x.getFullYear()+543;
   return `${day}/${month}/${year}`;
 }
-function thaiDateInputValue(v){ return v ? fmtD(v).replace(/^-/,'') : ''; }
+function thaiDateInputValue(v){
+  if(!v) return '';
+  return fmtD(v).replace(/^-/,'');
+}
 function thaiDateToISO(v){
   if(!v)return '';
   const x=_parseDateAny(v); if(!x)return '';
@@ -2788,7 +2803,7 @@ function submitUsage(){
 }
 
 function renderUsageHistory(){
-  const rows=DB.usageRecords.map(r=>{const d=r.mileageEnd-r.mileageStart;return `<tr class="hover:bg-sidebar-hover/30 transition"><td class="py-3 pr-3 text-sidebar-textLight">${fmtD(r.date)}</td><td class="pr-3 font-mono text-brand-primaryLight font-semibold">${r.vehicle}</td><td class="pr-3 text-sidebar-textLight">${r.driver}</td><td class="pr-3 text-sidebar-textLight">${r.timeStart}-${r.timeEnd}</td><td class="pr-3 text-sidebar-textLight">${r.mileageStart.toLocaleString()}</td><td class="pr-3 text-sidebar-textLight">${r.mileageEnd.toLocaleString()}</td><td class="pr-3 font-semibold text-brand-accent">${d} กม.</td><td class="pr-3 text-sidebar-textLight">${r.destination}</td><td class="text-sidebar-textLight">${r.purpose}</td></tr>`;}).join('');
+  const rows=DB.usageRecords.map(r=>{const d=r.mileageEnd-r.mileageStart;return `<tr class="hover:bg-sidebar-hover/30 transition"><td class="py-3 pr-3 text-sidebar-textLight">${fmtD(repairLegacyThaiDate(r.date))}</td><td class="pr-3 font-mono text-brand-primaryLight font-semibold">${r.vehicle}</td><td class="pr-3 text-sidebar-textLight">${r.driver}</td><td class="pr-3 text-sidebar-textLight">${r.timeStart}-${r.timeEnd}</td><td class="pr-3 text-sidebar-textLight">${r.mileageStart.toLocaleString()}</td><td class="pr-3 text-sidebar-textLight">${r.mileageEnd.toLocaleString()}</td><td class="pr-3 font-semibold text-brand-accent">${d} กม.</td><td class="pr-3 text-sidebar-textLight">${r.destination}</td><td class="text-sidebar-textLight">${r.purpose}</td></tr>`;}).join('');
   return `<div class="fade-in space-y-4"><h3 class="text-xl font-bold">📜 ประวัติการใช้รถ</h3>
     <div class="stat-card rounded-2xl p-5 overflow-x-auto">
       <table class="w-full text-[12px]">
@@ -3742,6 +3757,25 @@ lucide.createIcons();
 // ✅ กำหนด URL ตรงนี้ที่เดียว ทุกฟังก์ชันใช้ร่วมกันได้เลย
 const webAppUrl = "https://script.google.com/macros/s/AKfycbzkOLh45upSc8yDfgrSivjH9QvdFmPIeVTZsiiI23hF6YDVycKPSQ4jqTeEYQdwfc0zUg/exec";
 
+// ซ่อมวันที่ที่เคยถูกแปลง พ.ศ. ซ้ำ เช่น 02/01/3111 → 02/01/2568
+function repairLegacyThaiDate(v){
+  if(!v) return '';
+  const s=String(v).trim();
+  const m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m){
+    let y=+m[3];
+    if(y>=3000 && y<4000) y-=543;
+    return `${String(+m[1]).padStart(2,'0')}/${String(+m[2]).padStart(2,'0')}/${y}`;
+  }
+  const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]|$)/);
+  if(iso){
+    let y=+iso[1];
+    if(y>=3000 && y<4000) y-=543;
+    if(y>=2400) return `${String(+iso[3]).padStart(2,'0')}/${String(+iso[2]).padStart(2,'0')}/${y}`;
+  }
+  return s;
+}
+
 // ── ดึงข้อมูลทั้งหมดจาก Google Sheet มาเติมใน DB (เรียกตอน login สำเร็จ) ──
 // หมายเหตุ: ต้อง deploy Code.gs เวอร์ชันที่มี action=getData ก่อน ไม่งั้นจะได้ค่าว่าง
 async function loadAllDataFromSheet(){
@@ -3779,6 +3813,24 @@ async function loadAllDataFromSheet(){
       mileageStart: +r.MileageStart||0, mileageEnd: +r.MileageEnd||0,
       destination: r.Destination||'', purpose: r.Purpose||'', passengers: +r.Passengers||0, notes: r.Notes||''
     }));
+
+    // ซ่อมข้อมูลวันที่เก่าที่เคยถูกบวก พ.ศ. ซ้ำ (เช่น 3111)
+    DB.vehicles = DB.vehicles.map(v=>({
+      ...v,
+      insuranceExpiry: repairLegacyThaiDate(v.insuranceExpiry),
+      taxExpiry: repairLegacyThaiDate(v.taxExpiry),
+      gpsInstallDate: repairLegacyThaiDate(v.gpsInstallDate)
+    }));
+    DB.drivers = DB.drivers.map(d=>({
+      ...d,
+      expiry: repairLegacyThaiDate(d.expiry),
+      startDate: repairLegacyThaiDate(d.startDate)
+    }));
+    DB.usageRecords = DB.usageRecords.map(r=>({
+      ...r,
+      date: repairLegacyThaiDate(r.date)
+    }));
+
 
     // ── Fuel_Log → DB.fuelRecords ──
     DB.fuelRecords = (json.fuelRecords||[]).map(r=>({
