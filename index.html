@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -2537,6 +2538,72 @@ function _dashboardYearMonth(value){
   return '';
 }
 
+function _dashboardDateKey(value){
+  if(!value) return '';
+
+  if(Object.prototype.toString.call(value)==='[object Date]' && !isNaN(value.getTime())){
+    let y=value.getFullYear();
+    if(y>=2400)y-=543;
+    return `${y}-${String(value.getMonth()+1).padStart(2,'0')}-${String(value.getDate()).padStart(2,'0')}`;
+  }
+
+  const s=String(value).trim();
+  let m=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if(m){
+    let y=+m[3]; if(y>=2400)y-=543;
+    return `${y}-${String(+m[2]).padStart(2,'0')}-${String(+m[1]).padStart(2,'0')}`;
+  }
+
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m){
+    let y=+m[1]; if(y>=2400)y-=543;
+    return `${y}-${String(+m[2]).padStart(2,'0')}-${String(+m[3]).padStart(2,'0')}`;
+  }
+
+  const d=new Date(s);
+  if(!isNaN(d.getTime())){
+    let y=d.getFullYear(); if(y>=2400)y-=543;
+    return `${y}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+function _getFuelEfficiencyRecords(){
+  const grouped={};
+  DB.fuelRecords.forEach(r=>{
+    const plate=String(r.vehicle||'').trim();
+    if(!plate)return;
+    if(!grouped[plate])grouped[plate]=[];
+    grouped[plate].push(r);
+  });
+
+  const result={};
+  Object.keys(grouped).forEach(plate=>{
+    const sorted=[...grouped[plate]].sort((a,b)=>{
+      return _dashboardDateKey(a.date).localeCompare(_dashboardDateKey(b.date))
+        || (+a.id||0)-(+b.id||0);
+    });
+
+    let previousMileage=null;
+    result[plate]=[];
+
+    sorted.forEach(r=>{
+      const mileage=+r.mileage||0;
+      const liters=+r.liters||0;
+      let eff=+r.efficiency||0;
+
+      if(eff<=0 && previousMileage!==null && mileage>previousMileage && liters>0){
+        eff=+((mileage-previousMileage)/liters).toFixed(2);
+      }
+
+      if(eff>0) result[plate].push(eff);
+      if(mileage>0) previousMileage=mileage;
+    });
+  });
+
+  return result;
+}
+
 function getFuelMonthOptions(){
   // แสดงเฉพาะเดือน/ปีที่มีการกรอกข้อมูลเติมน้ำมันจริง
   // ไม่จำกัดแค่ 12 เดือนล่าสุด และไม่ให้ค่าขยะ เช่น undefined/NaN หลุดเข้ามา
@@ -2659,33 +2726,15 @@ function renderDashboard(){
 
     <!-- ── อัตราสิ้นเปลืองแต่ละคัน ── -->
     ${(()=>{
-      // คำนวณอัตราสิ้นเปลืองจริงจาก fuelRecords: ระยะทางที่วิ่งได้ / ลิตรที่เติม
-      // จับคู่ record ที่เรียงตามวันที่ของแต่ละคัน แล้วคำนวณ (mileage_ปัจจุบัน - mileage_ก่อนหน้า) / liters
-      const effByVehicle = {};
-      DB.vehicles.forEach(v => { effByVehicle[v.plate] = []; });
-      // จัดกลุ่มตามทะเบียน แล้วเรียงตามวันที่
-      const grouped = {};
-      DB.fuelRecords.forEach(r => {
-        if(!grouped[r.vehicle]) grouped[r.vehicle] = [];
-        grouped[r.vehicle].push(r);
-      });
-      Object.keys(grouped).forEach(plate => {
-        const sorted = [...grouped[plate]].filter(r=>r.mileage>0).sort((a,b)=>a.date.localeCompare(b.date));
-        for(let i=1;i<sorted.length;i++){
-          const dist = sorted[i].mileage - sorted[i-1].mileage;
-          if(dist>0 && sorted[i].liters>0) effByVehicle[plate]=(effByVehicle[plate]||[]).concat(+(dist/sorted[i].liters).toFixed(2));
-        }
-        // ถ้ามีแค่ 1 record ให้ใช้ค่าเดิมที่บันทึกไว้
-        if(sorted.length===1 && sorted[0].efficiency && +sorted[0].efficiency>0)
-          effByVehicle[plate]=[+sorted[0].efficiency];
-      });
-      const effRows = DB.vehicles.map(v => {
-        const arr = effByVehicle[v.plate]||[];
-        const avg = arr.length>0 ? (arr.reduce((s,x)=>s+x,0)/arr.length).toFixed(2) : '—';
-        const last = arr.length>0 ? arr[arr.length-1].toFixed(2) : '—';
-        const warn = avg!=='—' && +avg < (systemSettings.efficiencyWarnBelow||7.5);
-        const effColor = warn ? 'text-brand-danger' : 'text-brand-success';
-        const warnBadge = warn ? `<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-brand-danger/20 text-brand-danger font-semibold">ต่ำกว่าเกณฑ์</span>` : '';
+      // ใช้ค่าที่บันทึกไว้ หรือคำนวณจากเลขไมล์ครั้งก่อน / ลิตร
+      const effByVehicle=_getFuelEfficiencyRecords();
+      const effRows=DB.vehicles.map(v=>{
+        const arr=effByVehicle[v.plate]||[];
+        const avg=arr.length>0?(arr.reduce((sum,x)=>sum+x,0)/arr.length).toFixed(2):'—';
+        const last=arr.length>0?arr[arr.length-1].toFixed(2):'—';
+        const warn=avg!=='—' && +avg<(systemSettings.efficiencyWarnBelow||7.5);
+        const effColor=warn?'text-brand-danger':'text-brand-success';
+        const warnBadge=warn?`<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-brand-danger/20 text-brand-danger font-semibold">ต่ำกว่าเกณฑ์</span>`:'';
         return `<tr class="hover:bg-sidebar-hover/30 transition">
           <td class="py-3 pr-3 font-mono font-semibold text-brand-primaryLight">${v.plate}${v.isAmbulance?' 🚑':''}</td>
           <td class="pr-3 text-sidebar-textLight">${v.brand} ${v.model}</td>
@@ -2696,8 +2745,11 @@ function renderDashboard(){
           <td>${sBadge(v.status)}</td>
         </tr>`;
       }).join('');
-      const avgAll = DB.vehicles.map(v=>{const a=effByVehicle[v.plate]||[];return a.length>0?a.reduce((s,x)=>s+x,0)/a.length:null;}).filter(x=>x!==null);
-      const fleetAvg = avgAll.length>0?(avgAll.reduce((s,x)=>s+x,0)/avgAll.length).toFixed(2):'—';
+      const avgAll=DB.vehicles.map(v=>{
+        const a=effByVehicle[v.plate]||[];
+        return a.length?a.reduce((sum,x)=>sum+x,0)/a.length:null;
+      }).filter(x=>x!==null);
+      const fleetAvg=avgAll.length?(avgAll.reduce((sum,x)=>sum+x,0)/avgAll.length).toFixed(2):'—';
       return `<div class="stat-card rounded-2xl p-5">
         <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
           <h4 class="font-bold text-base flex items-center gap-2"><i data-lucide="gauge" class="w-4 h-4 text-orange-400"></i>อัตราสิ้นเปลืองน้ำมันแต่ละคัน (กม./ลิตร)</h4>
@@ -3585,18 +3637,53 @@ function confirmDeleteFuel(id){
   showToast('ลบรายการเติมน้ำมันเรียบร้อย');
 }
 function submitFuel(){
-  const v=document.getElementById('fVehicle').value,dt=thaiDateToISO(document.getElementById('fDate').value);
+  const v=document.getElementById('fVehicle').value.trim();
+  const dt=thaiDateToISO(document.getElementById('fDate').value);
   if(!v||!dt)return;
-  const l=+document.getElementById('fLiters').value||0,p=+document.getElementById('fPrice').value||0;
-  const driver=document.getElementById('fDriver').value;
+
+  const l=+document.getElementById('fLiters').value||0;
+  const p=+document.getElementById('fPrice').value||0;
+  const driver=document.getElementById('fDriver').value.trim();
   const mileage=+document.getElementById('fMileage').value||0;
   const note=document.getElementById('fNote').value||'';
   const id=Date.now();
-  DB.fuelRecords.unshift({id,date:dt,vehicle:v,driver,liters:l,pricePerLiter:p,total:l*p,mileage,efficiency:8.32});
-  // ── ส่งไป Google Sheet ──
-  _sendToSheet({sheetName:'Fuel_Log',data:[id,dt,v,driver,l,p,l*p,mileage,'',note,new Date().toISOString()]},
-    'บันทึกการเติมน้ำมันเรียบร้อยแล้ว!', null);
-  const s=document.getElementById('fuelOk');if(s){s.classList.remove('hidden');setTimeout(()=>s.classList.add('hidden'),3000);}
+
+  // คำนวณ กม./ลิตรจากเลขไมล์ครั้งก่อนของรถคันเดียวกัน
+  const previousRecords=DB.fuelRecords
+    .filter(r=>String(r.vehicle||'').trim()===v && (+r.mileage||0)>0)
+    .sort((a,b)=>{
+      const da=_dashboardDateKey(a.date), db=_dashboardDateKey(b.date);
+      return da.localeCompare(db) || (+a.id||0)-(+b.id||0);
+    });
+
+  let efficiency=0;
+  if(mileage>0 && l>0){
+    let previousMileage=null;
+    for(let i=previousRecords.length-1;i>=0;i--){
+      const pm=+previousRecords[i].mileage||0;
+      if(pm>0 && pm<mileage){
+        previousMileage=pm;
+        break;
+      }
+    }
+    if(previousMileage!==null){
+      const dist=mileage-previousMileage;
+      if(dist>0) efficiency=+(dist/l).toFixed(2);
+    }
+  }
+
+  DB.fuelRecords.unshift({
+    id,date:dt,vehicle:v,driver,liters:l,pricePerLiter:p,total:l*p,
+    mileage,efficiency
+  });
+
+  _sendToSheet({
+    sheetName:'Fuel_Log',
+    data:[id,dt,v,driver,l,p,l*p,mileage,efficiency||'',note,new Date().toISOString()]
+  },'บันทึกการเติมน้ำมันเรียบร้อยแล้ว!',null);
+
+  const s=document.getElementById('fuelOk');
+  if(s){s.classList.remove('hidden');setTimeout(()=>s.classList.add('hidden'),3000);}
   document.getElementById('fuelForm').reset();
   navigateTo('fuel');
 }
@@ -3674,27 +3761,55 @@ function initDashCharts(){
   _renderFuelTrendChart();
 
   // ── กราฟอัตราสิ้นเปลือง ──
-  const grouped={};
-  DB.fuelRecords.forEach(r=>{if(!grouped[r.vehicle])grouped[r.vehicle]=[];grouped[r.vehicle].push(r);});
+  const effByVehicleChartData=_getFuelEfficiencyRecords();
   const effLabels=[], effData=[], effColors=[];
   const palette=['#6c5ce7','#00cec9','#fdcb6e','#00b894','#ff6b6b','#74b9ff','#fd79a8','#e17055'];
   const warnLine=systemSettings.efficiencyWarnBelow||7.5;
+
   DB.vehicles.forEach((v,i)=>{
-    const sorted=(grouped[v.plate]||[]).filter(r=>r.mileage>0).sort((a,b)=>a.date.localeCompare(b.date));
-    const arr=[];
-    for(let j=1;j<sorted.length;j++){const dist=sorted[j].mileage-sorted[j-1].mileage;if(dist>0&&sorted[j].liters>0)arr.push(+(dist/sorted[j].liters).toFixed(2));}
-    if(arr.length===0&&sorted.length===1&&+sorted[0].efficiency>0)arr.push(+sorted[0].efficiency);
+    const arr=effByVehicleChartData[v.plate]||[];
     const avg=arr.length>0?+(arr.reduce((s,x)=>s+x,0)/arr.length).toFixed(2):null;
     effLabels.push(v.plate+(v.isAmbulance?' 🚑':''));
     effData.push(avg);
     effColors.push(avg!==null&&avg<warnLine?'rgba(255,107,107,0.7)':'rgba(251,146,60,0.7)');
   });
+
   const ec=document.getElementById('efficiencyChart');
   if(_effChart){_effChart.destroy();}
   if(ec)_effChart=new Chart(ec,{
     type:'bar',
-    data:{labels:effLabels,datasets:[{label:'กม./ลิตร',data:effData,backgroundColor:effColors,borderColor:effColors.map(c=>c.replace('0.7','1')),borderWidth:2,borderRadius:8}]},
-    options:{...bOpts,plugins:{...bOpts.plugins,legend:{display:false},annotation:{annotations:{warnLine:{type:'line',yMin:warnLine,yMax:warnLine,borderColor:'rgba(255,107,107,0.6)',borderWidth:2,borderDash:[6,3]}}}},scales:{x:{ticks:{color:'#8b8fa3'},grid:{display:false}},y:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:false,title:{display:true,text:'กม./ลิตร',color:'#8b8fa3',font:{size:11}}}}}
+    data:{
+      labels:effLabels,
+      datasets:[{
+        label:'กม./ลิตร',
+        data:effData,
+        backgroundColor:effColors,
+        borderColor:effColors.map(c=>c.replace('0.7','1')),
+        borderWidth:2,
+        borderRadius:8
+      }]
+    },
+    options:{
+      ...bOpts,
+      plugins:{
+        ...bOpts.plugins,
+        legend:{display:false},
+        annotation:{
+          annotations:{
+            warnLine:{
+              type:'line',yMin:warnLine,yMax:warnLine,
+              borderColor:'rgba(255,107,107,0.6)',
+              borderWidth:2,borderDash:[6,3]
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{color:'#8b8fa3'},grid:{display:false}},
+        y:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,
+           title:{display:true,text:'กม./ลิตร',color:'#8b8fa3',font:{size:11}}}
+      }
+    }
   });
 
   // ── กราฟบำรุงรักษาแยกประเภท ──
@@ -3890,7 +4005,7 @@ async function loadAllDataFromSheet(){
 
     // ── Fuel_Log → DB.fuelRecords ──
     DB.fuelRecords = (json.fuelRecords||[]).map(r=>({
-      id: r.LogID||Date.now(), date: r.Date||'', vehicle: r.Vehicle||'', driver: r.Driver||'',
+      id: r.LogID||Date.now(), date: repairLegacyThaiDate(r.Date||''), vehicle: r.Vehicle||'', driver: r.Driver||'',
       liters: +r.Liters||0, pricePerLiter: +r.PricePerLiter||0, total: +r.TotalCost||0,
       mileage: +r.Mileage||0, efficiency: +r.Efficiency||0
     }));
