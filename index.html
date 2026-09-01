@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -2622,17 +2623,21 @@ function getFuelMonthOptions(){
 }
 
 function getFuelStatsForMonth(ym){
-  // ym = "YYYY-MM"
   const records = DB.fuelRecords.filter(r=>{
     const rym = r.MonthKey || _dashboardYearMonth(r.date);
     return rym===ym;
   });
   const stats = {};
-  DB.vehicles.forEach(v=>{ stats[v.plate]={liters:0,total:0,count:0,brand:v.brand,model:v.model,isAmbulance:v.isAmbulance,status:v.status}; });
+  DB.vehicles.forEach(v=>{
+    stats[v.plate]={liters:0,total:0,count:0,brand:v.brand,model:v.model,isAmbulance:v.isAmbulance,status:v.status};
+  });
   records.forEach(r=>{
+    const liters=Number(r.liters)||0;
+    const price=Number(r.pricePerLiter)||0;
+    const total=Number(r.total)>0?Number(r.total):(liters*price);
     if(!stats[r.vehicle]) stats[r.vehicle]={liters:0,total:0,count:0,brand:'',model:'',isAmbulance:false,status:''};
-    stats[r.vehicle].liters += r.liters||0;
-    stats[r.vehicle].total  += r.total||0;
+    stats[r.vehicle].liters += liters;
+    stats[r.vehicle].total += total;
     stats[r.vehicle].count++;
   });
   return stats;
@@ -2657,7 +2662,7 @@ function renderDashboard(){
   }).join('');
   const stats = getFuelStatsForMonth(curYm);
   const totalLiters = Object.values(stats).reduce((s,x)=>s+x.liters,0);
-  const totalCost   = Object.values(stats).reduce((s,x)=>s+x.total,0);
+  const totalCost   = Object.values(stats).reduce((s,x)=>s+(Number(x.total)||0),0);
 
   const fuelRows = DB.vehicles.map(v=>{
     const s = stats[v.plate]||{liters:0,total:0,count:0};
@@ -3548,17 +3553,24 @@ function deleteUser(id){if(confirm('ยืนยันลบ?')){DB.users=DB.use
 function renderFuel(){
   const vO=DB.vehicles.map(v=>`<option value="${v.plate}">${v.brand} ${v.model} ${v.plate}</option>`).join('');
   const dO=DB.drivers.map(d=>`<option>${d.name}</option>`).join('');
-  const rows=DB.fuelRecords.map(r=>`<tr class="hover:bg-sidebar-hover/30 transition" id="frow-${r.id}">
-    <td class="py-3 pr-3 text-sidebar-textLight">${fmtD(r.date)}</td>
-    <td class="pr-3 font-mono text-brand-primaryLight font-semibold">${r.vehicle}</td>
-    <td class="pr-3 text-sidebar-textLight">${r.driver}</td>
-    <td class="pr-3 text-sidebar-textLight">${r.liters} ล.</td>
-    <td class="pr-3 text-sidebar-textLight">${r.pricePerLiter} ฿</td>
-    <td class="pr-3 font-semibold text-brand-accent">${r.total.toLocaleString()} ฿</td>
-    <td class="pr-3 text-sidebar-textLight">${r.mileage.toLocaleString()}</td>
-    <td class="pr-3 text-orange-400 font-semibold">${r.efficiency}</td>
-    <td><button onclick="deleteFuelRecord(${r.id})" class="p-1.5 hover:bg-brand-danger/10 rounded text-sidebar-text hover:text-brand-danger transition" title="ลบรายการนี้"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></td>
-  </tr>`).join('');
+  const rows=DB.fuelRecords.map(r=>{
+    const liters=Number(r.liters)||0;
+    const price=Number(r.pricePerLiter)||0;
+    const total=Number(r.total)>0?Number(r.total):liters*price;
+    const mileage=Number(r.mileage)||0;
+    const efficiency=Number(r.efficiency)||0;
+    return `<tr class="hover:bg-sidebar-hover/30 transition" id="frow-${r.id}">
+      <td class="py-3 pr-3 text-sidebar-textLight">${fmtD(r.date)}</td>
+      <td class="pr-3 font-mono text-brand-primaryLight font-semibold">${r.vehicle||'-'}</td>
+      <td class="pr-3 text-sidebar-textLight">${r.driver||'-'}</td>
+      <td class="pr-3 text-sidebar-textLight">${liters.toLocaleString('th-TH',{minimumFractionDigits:1,maximumFractionDigits:1})} ล.</td>
+      <td class="pr-3 text-sidebar-textLight">${price>0?price.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2}):'—'} ฿</td>
+      <td class="pr-3 font-semibold text-brand-accent">${total.toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2})} ฿</td>
+      <td class="pr-3 text-sidebar-textLight">${mileage>0?mileage.toLocaleString('th-TH'):'—'}</td>
+      <td class="pr-3 text-orange-400 font-semibold">${efficiency>0?efficiency.toFixed(2):'—'}</td>
+      <td><button onclick="deleteFuelRecord(${r.id})" class="p-1.5 hover:bg-brand-danger/10 rounded text-sidebar-text hover:text-brand-danger transition" title="ลบรายการนี้"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></td>
+    </tr>`;
+  }).join('');
   const emptyMsg = DB.fuelRecords.length===0
     ? `<tr><td colspan="9" class="py-8 text-center text-sidebar-text text-sm">ยังไม่มีรายการเติมน้ำมัน</td></tr>` : '';
   return `<div class="fade-in space-y-6"><h3 class="text-2xl font-bold flex items-center gap-3"><i data-lucide="fuel" class="w-7 h-7 text-brand-primary"></i>บันทึกการเติมน้ำมัน</h3>
@@ -3657,22 +3669,25 @@ function submitFuel(){
 
   let efficiency=0;
   if(mileage>0 && l>0){
+    const currentKey=_dashboardDateKey(dt);
     let previousMileage=null;
     for(let i=previousRecords.length-1;i>=0;i--){
       const pm=+previousRecords[i].mileage||0;
-      if(pm>0 && pm<mileage){
+      const pd=_dashboardDateKey(previousRecords[i].date);
+      if(pm>0 && pd<=currentKey && pm<mileage){
         previousMileage=pm;
         break;
       }
     }
     if(previousMileage!==null){
       const dist=mileage-previousMileage;
-      if(dist>0) efficiency=+(dist/l).toFixed(2);
+      const eff=dist/l;
+      if(eff>0 && eff<100) efficiency=+eff.toFixed(2);
     }
   }
 
   DB.fuelRecords.unshift({
-    id,date:dt,vehicle:v,driver,liters:l,pricePerLiter:p,total:l*p,
+    id,date:dt,vehicle:v,driver,liters:l,pricePerLiter:p,total:Number((l*p).toFixed(2)),
     mileage,efficiency
   });
 
@@ -3875,7 +3890,7 @@ function updateDashFuelMonth(ym){
   // อัปเดตตาราง + summary cards + กราฟแยกคัน
   const stats=getFuelStatsForMonth(ym);
   const totalLiters=Object.values(stats).reduce((s,x)=>s+x.liters,0);
-  const totalCost=Object.values(stats).reduce((s,x)=>s+x.total,0);
+  const totalCost=Object.values(stats).reduce((s,x)=>s+(Number(x.total)||0),0);
 
   // อัปเดต summary cards
   const summaryEl=document.getElementById('dashFuelSummary');
@@ -4003,11 +4018,22 @@ async function loadAllDataFromSheet(){
 
 
     // ── Fuel_Log → DB.fuelRecords ──
-    DB.fuelRecords = (json.fuelRecords||[]).map(r=>({
-      id: r.LogID||Date.now(), date: repairLegacyThaiDate(r.Date||''), vehicle: r.Vehicle||'', driver: r.Driver||'',
-      liters: +r.Liters||0, pricePerLiter: +r.PricePerLiter||0, total: +r.TotalCost||0,
-      mileage: +r.Mileage||0, efficiency: +r.Efficiency||0
-    }));
+    DB.fuelRecords = (json.fuelRecords||[]).map(r=>{
+      const liters = Number(r.Liters)||0;
+      const pricePerLiter = Number(r.PricePerLiter)||0;
+      const total = Number(r.TotalCost)>0 ? Number(r.TotalCost) : (liters*pricePerLiter);
+      return {
+        id: r.LogID||Date.now(),
+        date: repairLegacyThaiDate(r.Date||''),
+        vehicle: String(r.Vehicle||'').trim(),
+        driver: r.Driver||'',
+        liters,
+        pricePerLiter,
+        total: Number(total.toFixed(2)),
+        mileage: Number(r.Mileage)||0,
+        efficiency: Number(r.Efficiency)||0
+      };
+    });
 
     // ── Maintenance_Log → DB.maintenance ──
     DB.maintenance = (json.maintenance||[]).map(r=>({
