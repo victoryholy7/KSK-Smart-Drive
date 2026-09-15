@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -2802,7 +2803,7 @@ function renderMissionFuelDashboard(){
         const r=item.raw?.r; if(!r)return '';
         return [`ระยะทาง: ${_missionFuelNumber(r.distance,0)} กม.`,`น้ำมันประมาณการ: ${_missionFuelNumber(r.estimatedLiters,1)} ลิตร`,`กม./ลิตร: ${_missionFuelNumber(r.efficiency,2)}`,`ภารกิจ: ${r.purpose}`,`ปลายทาง: ${r.destination||'-'}`];
       }}}},
-      scales:{x:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'ระยะทางต่อภารกิจ (กม.)',color:'#8b8fa3',font:{size:11}}},y:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'น้ำมันประมาณการ (ลิตร)',color:'#8b8fa3',font:{size:11}}}}
+      scales:{x:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'ระยะทางต่อภารกิจ (กม.)',color:'#8b8fa3',font:{size:11}}},y:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'น้ำมันประมาณการ (ลิตร)',color:'#8b8fa3',font:{size:11}}}}}
     });
   }
 
