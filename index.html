@@ -1,3 +1,4 @@
+
 <!doctype html>
 <html lang="th" class="h-full">
 <head>
@@ -2650,6 +2651,179 @@ function thMonthLabel(ym){
   return thMonths[Number(m)]+' '+thY;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+// 🚗⛽ Dashboard: ความสัมพันธ์ ภารกิจ - ระยะทาง - ปริมาณน้ำมัน
+// หมายเหตุ: Fuel_Log เป็นบันทึกการเติมน้ำมัน ไม่ได้ผูกกับ Vehicle_Log
+// โดยตรง ดังนั้น "น้ำมันประมาณการ" ของแต่ละภารกิจจะคำนวณจาก
+// ระยะทางภารกิจ ÷ ค่า กม./ลิตร ที่มีอยู่ของรถคันนั้น
+// ═══════════════════════════════════════════════════════════════════
+function _missionFuelEfficiencyMap(){
+  const grouped={};
+  (DB.fuelRecords||[]).forEach(r=>{
+    const plate=String(r.vehicle||'').trim();
+    const eff=Number(r.efficiency)||0;
+    if(!plate || eff<=0 || eff>=100) return;
+    if(!grouped[plate]) grouped[plate]=[];
+    grouped[plate].push({date:_dashboardDateKey(r.date),eff});
+  });
+  Object.keys(grouped).forEach(k=>grouped[k].sort((a,b)=>a.date.localeCompare(b.date)));
+  return grouped;
+}
+
+function _missionFuelEfficiencyAtDate(plate,dateKey,map){
+  const arr=(map&&map[plate])||[];
+  if(!arr.length) return 0;
+  let latest=0;
+  arr.forEach(x=>{
+    if(!dateKey || !x.date || x.date<=dateKey) latest=x.eff;
+  });
+  if(latest>0) return latest;
+  return dateKey ? 0 : (arr[0].eff||0);
+}
+
+function _missionFuelRows(){
+  const effMap=_missionFuelEfficiencyMap();
+  return (DB.usageRecords||[]).map((r,idx)=>{
+    const date=_dashboardDateKey(r.date);
+    const start=Number(r.mileageStart)||0;
+    const end=Number(r.mileageEnd)||0;
+    const distance=Number(r.distance)||Math.max(0,end-start);
+    const eff=_missionFuelEfficiencyAtDate(String(r.vehicle||'').trim(),date,effMap);
+    const estimatedLiters=(distance>0&&eff>0)?distance/eff:0;
+    return {
+      index:idx,
+      id:r.id||idx,
+      date,
+      vehicle:String(r.vehicle||'').trim(),
+      driver:String(r.driver||'').trim(),
+      destination:String(r.destination||'').trim(),
+      purpose:String(r.purpose||'').trim()||'ไม่ระบุภารกิจ',
+      distance,
+      efficiency:eff,
+      estimatedLiters,
+      passengers:Number(r.passengers)||0
+    };
+  }).filter(r=>r.distance>0);
+}
+
+function _missionFuelFilterData(){
+  const rows=_missionFuelRows();
+  const from=document.getElementById('missionFuelFrom')?.value||'';
+  const to=document.getElementById('missionFuelTo')?.value||'';
+  const vehicle=document.getElementById('missionFuelVehicle')?.value||'';
+  const purposeValue=document.getElementById('missionFuelPurpose')?.value||'';
+  const purpose=purposeValue?decodeURIComponent(purposeValue):'';
+  return rows.filter(r=>{
+    if(from&&r.date<from)return false;
+    if(to&&r.date>to)return false;
+    if(vehicle&&r.vehicle!==vehicle)return false;
+    if(purpose&&r.purpose!==purpose)return false;
+    return true;
+  });
+}
+
+function _missionFuelNumber(n,d=1){
+  return Number(n||0).toLocaleString('th-TH',{minimumFractionDigits:d,maximumFractionDigits:d});
+}
+
+function _missionFuelBuildRegression(points){
+  if(points.length<2)return [];
+  let sx=0,sy=0,sxy=0,sxx=0;
+  points.forEach(p=>{sx+=p.x;sy+=p.y;sxy+=p.x*p.y;sxx+=p.x*p.x;});
+  const n=points.length;
+  const den=n*sxx-sx*sx;
+  if(Math.abs(den)<1e-9)return [];
+  const slope=(n*sxy-sx*sy)/den;
+  const intercept=(sy-slope*sx)/n;
+  const xs=points.map(p=>p.x);
+  const minX=Math.min(...xs),maxX=Math.max(...xs);
+  return [{x:minX,y:slope*minX+intercept},{x:maxX,y:slope*maxX+intercept}];
+}
+
+function renderMissionFuelDashboard(){
+  const rows=_missionFuelFilterData();
+  const estimable=rows.filter(r=>r.estimatedLiters>0);
+  const missionCount=rows.length;
+  const totalDistance=rows.reduce((s,r)=>s+r.distance,0);
+  const totalEstimatedLiters=estimable.reduce((s,r)=>s+r.estimatedLiters,0);
+  const avgEff=totalEstimatedLiters>0?totalDistance/totalEstimatedLiters:0;
+  const avgDistance=missionCount?totalDistance/missionCount:0;
+
+  const setText=(id,text)=>{const el=document.getElementById(id);if(el)el.textContent=text;};
+  setText('missionFuelMissionCount',missionCount.toLocaleString('th-TH'));
+  setText('missionFuelDistance',_missionFuelNumber(totalDistance,0));
+  setText('missionFuelLiters',_missionFuelNumber(totalEstimatedLiters,1));
+  setText('missionFuelAvgEff',avgEff>0?_missionFuelNumber(avgEff,2):'—');
+  setText('missionFuelMeta',estimable.length+' / '+rows.length+' ภารกิจ มีข้อมูล กม./ลิตรสำหรับประมาณการ');
+
+  // ตารางสรุปตามรถ
+  const tbody=document.getElementById('missionFuelVehicleBody');
+  if(tbody){
+    const by={};
+    rows.forEach(r=>{
+      if(!by[r.vehicle])by[r.vehicle]={missions:0,distance:0,liters:0,estimable:0};
+      by[r.vehicle].missions++;
+      by[r.vehicle].distance+=r.distance;
+      if(r.estimatedLiters>0){by[r.vehicle].liters+=r.estimatedLiters;by[r.vehicle].estimable++;}
+    });
+    const vehicles=(DB.vehicles||[]).filter(v=>!Object.keys(by).length||by[v.plate]||rows.some(r=>r.vehicle===v.plate));
+    const keys=vehicles.map(v=>v.plate).filter(Boolean);
+    Object.keys(by).filter(k=>!keys.includes(k)).forEach(k=>keys.push(k));
+    tbody.innerHTML=keys.map(plate=>{
+      const v=(DB.vehicles||[]).find(x=>x.plate===plate)||{};
+      const s=by[plate]||{missions:0,distance:0,liters:0,estimable:0};
+      const eff=s.liters>0?s.distance/s.liters:0;
+      return `<tr class="hover:bg-sidebar-hover/30 transition">
+        <td class="py-3 pr-3 font-mono font-semibold text-brand-primaryLight">${plate}${v.isAmbulance?' 🚑':''}</td>
+        <td class="pr-3 text-sidebar-textLight">${v.brand||''} ${v.model||''}</td>
+        <td class="pr-3 text-center">${s.missions.toLocaleString('th-TH')}</td>
+        <td class="pr-3 font-semibold text-brand-info">${_missionFuelNumber(s.distance,0)}</td>
+        <td class="pr-3 font-semibold text-brand-warn">${s.liters>0?_missionFuelNumber(s.liters,1):'—'}</td>
+        <td class="pr-3 font-semibold ${eff>0?'text-brand-success':'text-sidebar-text'}">${eff>0?_missionFuelNumber(eff,2):'—'}</td>
+        <td class="pr-3 text-xs text-sidebar-text">${s.estimable}/${s.missions}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="7" class="py-6 text-center text-sidebar-text">ยังไม่มีข้อมูลภารกิจที่มีระยะทาง</td></tr>`;
+  }
+
+  const ctx=document.getElementById('missionFuelChart');
+  if(ctx){
+    if(window._missionFuelChart)window._missionFuelChart.destroy();
+    const points=estimable.map(r=>({x:r.distance,y:r.estimatedLiters,r}));
+    const regression=_missionFuelBuildRegression(points);
+    window._missionFuelChart=new Chart(ctx,{
+      type:'scatter',
+      data:{datasets:[
+        {label:'ภารกิจ',data:points,showLine:false,pointRadius:5,pointHoverRadius:8,backgroundColor:'rgba(0,206,201,0.70)',borderColor:'rgba(0,206,201,1)',borderWidth:1},
+        ...(regression.length?[{label:'แนวโน้ม',data:regression,type:'line',pointRadius:0,borderColor:'rgba(251,146,60,0.9)',borderWidth:2,borderDash:[6,4],fill:false}]:[])
+      ]},
+      options:{...bOpts,interaction:{mode:'nearest',intersect:true},plugins:{...bOpts.plugins,legend:{display:regression.length>0,labels:{color:'#8b8fa3',font:{size:10}}},tooltip:{callbacks:{title:items=>{
+        const r=items[0]?.raw?.r; return r?`${r.vehicle} • ${r.date}`:'ภารกิจ';
+      },label:item=>{
+        const r=item.raw?.r; if(!r)return '';
+        return [`ระยะทาง: ${_missionFuelNumber(r.distance,0)} กม.`,`น้ำมันประมาณการ: ${_missionFuelNumber(r.estimatedLiters,1)} ลิตร`,`กม./ลิตร: ${_missionFuelNumber(r.efficiency,2)}`,`ภารกิจ: ${r.purpose}`,`ปลายทาง: ${r.destination||'-'}`];
+      }}}},
+      scales:{x:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'ระยะทางต่อภารกิจ (กม.)',color:'#8b8fa3',font:{size:11}}},y:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true,title:{display:true,text:'น้ำมันประมาณการ (ลิตร)',color:'#8b8fa3',font:{size:11}}}}
+    });
+  }
+
+  const purposeCtx=document.getElementById('missionPurposeChart');
+  if(purposeCtx){
+    if(window._missionPurposeChart)window._missionPurposeChart.destroy();
+    const byPurpose={};
+    rows.forEach(r=>{
+      if(!byPurpose[r.purpose])byPurpose[r.purpose]={distance:0,liters:0};
+      byPurpose[r.purpose].distance+=r.distance;
+      byPurpose[r.purpose].liters+=r.estimatedLiters;
+    });
+    const entries=Object.entries(byPurpose).sort((a,b)=>b[1].distance-a[1].distance).slice(0,10);
+    window._missionPurposeChart=new Chart(purposeCtx,{type:'bar',data:{labels:entries.map(x=>x[0]),datasets:[
+      {label:'ระยะทาง (กม.)',data:entries.map(x=>x[1].distance),backgroundColor:'rgba(108,92,231,0.65)',borderRadius:7},
+      {label:'น้ำมันประมาณการ (ลิตร)',data:entries.map(x=>x[1].liters),backgroundColor:'rgba(0,206,201,0.65)',borderRadius:7}
+    ]},options:{...bOpts,indexAxis:'y',scales:{x:{ticks:{color:'#8b8fa3'},grid:{color:gc},beginAtZero:true},y:{ticks:{color:'#8b8fa3'},grid:{display:false}}}}});
+  }
+}
+
 function renderDashboard(){
   const monthOpts = getFuelMonthOptions();
   // เลือกเดือนแรกที่มีข้อมูลจริงเป็นค่าเริ่มต้น
@@ -2686,6 +2860,60 @@ function renderDashboard(){
 
   return `<div class="fade-in space-y-6">
     <h3 class="text-2xl font-bold">📊 Executive Dashboard</h3>
+
+    <!-- ── ความสัมพันธ์ ภารกิจ - ระยะทาง - ปริมาณน้ำมัน ── -->
+    <div class="stat-card rounded-2xl p-5">
+      <div class="flex items-start justify-between flex-wrap gap-3 mb-4">
+        <div>
+          <h4 class="font-bold text-base flex items-center gap-2"><i data-lucide="route" class="w-4 h-4 text-brand-accent"></i>ความสัมพันธ์ระหว่างภารกิจ – ระยะทาง – ปริมาณน้ำมัน</h4>
+          <p class="text-xs text-sidebar-text mt-1">วิเคราะห์การเดินทางของรถยนต์ราชการจากบันทึกการใช้รถ โดยประมาณปริมาณน้ำมันจากค่า กม./ลิตรของรถแต่ละคัน</p>
+        </div>
+        <span class="text-[10px] px-2 py-1 rounded-full bg-brand-warn/10 text-brand-warn border border-brand-warn/20">น้ำมัน = ประมาณการ</span>
+      </div>
+
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="stat-card rounded-xl p-4 bg-sidebar-hover/30"><div class="text-[11px] text-sidebar-text mb-1">จำนวนภารกิจ</div><div id="missionFuelMissionCount" class="text-xl font-bold text-brand-primaryLight">0</div><div class="text-[10px] text-sidebar-text">เที่ยว</div></div>
+        <div class="stat-card rounded-xl p-4 bg-sidebar-hover/30"><div class="text-[11px] text-sidebar-text mb-1">ระยะทางรวม</div><div id="missionFuelDistance" class="text-xl font-bold text-brand-info">0</div><div class="text-[10px] text-sidebar-text">กม.</div></div>
+        <div class="stat-card rounded-xl p-4 bg-sidebar-hover/30"><div class="text-[11px] text-sidebar-text mb-1">น้ำมันประมาณการ</div><div id="missionFuelLiters" class="text-xl font-bold text-brand-warn">0.0</div><div class="text-[10px] text-sidebar-text">ลิตร</div></div>
+        <div class="stat-card rounded-xl p-4 bg-sidebar-hover/30"><div class="text-[11px] text-sidebar-text mb-1">เฉลี่ย กม./ลิตร</div><div id="missionFuelAvgEff" class="text-xl font-bold text-brand-success">—</div><div class="text-[10px] text-sidebar-text">จากข้อมูลที่มี</div></div>
+      </div>
+
+      <div class="grid md:grid-cols-4 gap-3 mb-4">
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ตั้งแต่วันที่</label><input type="date" id="missionFuelFrom" class="input-field" onchange="renderMissionFuelDashboard()"></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ถึงวันที่</label><input type="date" id="missionFuelTo" class="input-field" onchange="renderMissionFuelDashboard()"></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">รถยนต์</label><select id="missionFuelVehicle" class="input-field" onchange="renderMissionFuelDashboard()"><option value="">รถทุกคัน</option>${DB.vehicles.map(v=>`<option value="${v.plate}">${v.plate}${v.isAmbulance?' 🚑':''}</option>`).join('')}</select></div>
+        <div><label class="block text-xs text-sidebar-text mb-2 font-semibold">ภารกิจ</label><select id="missionFuelPurpose" class="input-field" onchange="renderMissionFuelDashboard()"><option value="">ทุกภารกิจ</option>${[...new Set(_missionFuelRows().map(r=>r.purpose))].sort((a,b)=>a.localeCompare(b,'th')).map(p=>`<option value="${encodeURIComponent(p)}">${p}</option>`).join('')}</select></div>
+      </div>
+
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <h5 class="text-sm font-semibold text-sidebar-text">กราฟความสัมพันธ์ระยะทางกับน้ำมันประมาณการ</h5>
+        <span id="missionFuelMeta" class="text-[10px] text-sidebar-text">—</span>
+      </div>
+      <div style="position:relative;height:340px"><canvas id="missionFuelChart"></canvas></div>
+      <div class="mt-2 text-[10px] text-sidebar-text">จุดแต่ละจุด = 1 ภารกิจ • แกน X = ระยะทาง • แกน Y = น้ำมันประมาณการ • เส้นประ = แนวโน้ม</div>
+
+      <div class="mt-6">
+        <h5 class="text-sm font-semibold text-sidebar-text mb-3">สรุปตามรถยนต์ราชการ</h5>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead><tr class="text-left text-sidebar-text border-b border-sidebar-border/50">
+              <th class="pb-3 pr-3">ทะเบียน</th><th class="pb-3 pr-3">ยี่ห้อ/รุ่น</th><th class="pb-3 pr-3 text-center">ภารกิจ</th><th class="pb-3 pr-3">ระยะทาง (กม.)</th><th class="pb-3 pr-3">น้ำมันประมาณการ (ล.)</th><th class="pb-3 pr-3">กม./ลิตร</th><th class="pb-3">มีข้อมูล</th>
+            </tr></thead>
+            <tbody id="missionFuelVehicleBody" class="divide-y divide-sidebar-border/30"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mt-6">
+        <h5 class="text-sm font-semibold text-sidebar-text mb-3">ภารกิจที่มีระยะทางสูงสุด 10 อันดับแรก</h5>
+        <div style="position:relative;height:320px"><canvas id="missionPurposeChart"></canvas></div>
+      </div>
+
+      <div class="mt-4 p-3 rounded-xl bg-brand-warn/5 border border-brand-warn/20 text-[11px] text-sidebar-text leading-relaxed">
+        <strong class="text-brand-warn">หมายเหตุ:</strong> ระบบเดิมมี <b>Vehicle_Log</b> สำหรับบันทึกภารกิจ/ระยะทาง และ <b>Fuel_Log</b> สำหรับบันทึกการเติมน้ำมัน แต่ยังไม่ได้ผูกการเติมน้ำมันกับเที่ยวรถโดยตรง ดังนั้นกราฟนี้จึงใช้ <b>น้ำมันประมาณการ = ระยะทาง ÷ กม./ลิตร</b> เพื่อให้เห็นแนวโน้มเชิงบริหาร และไม่ถือเป็นปริมาณน้ำมันที่เติมจริงของเที่ยวใดเที่ยวหนึ่ง
+      </div>
+    </div>
+
 
     <!-- ── สถิติน้ำมันรายเดือนแยกคัน ── -->
     <div class="stat-card rounded-2xl p-5">
@@ -3824,6 +4052,9 @@ function initDashCharts(){
       }
     }
   });
+
+  // ── Dashboard ภารกิจ - ระยะทาง - น้ำมัน ──
+  setTimeout(renderMissionFuelDashboard, 30);
 
   // ── กราฟบำรุงรักษาแยกประเภท ──
   const maintTypeCounts={};
